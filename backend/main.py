@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import sys
 import time
@@ -48,6 +49,7 @@ from models import (
 from models_db import AccountRecord, Analysis, Report, ReviewRequest, Reward, RingRecord
 from scoring import build_score_lookup, compute_ring_scores, compute_suspicion_scores
 from utils import build_graph, parse_csv
+import cache as _cache
 
 # ---------------------------------------------------------------------------
 # Application lifespan (replaces deprecated @app.on_event)
@@ -74,6 +76,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     _ai_mod._http_client = http_client
     print("[PERF] Shared httpx.AsyncClient initialised (HTTP/2, pool=40).")
 
+    # ------------------------------------------------------------------
+    # Redis cache – connects to REDIS_URL from .env; falls back gracefully
+    # when Redis is unavailable (in-memory globals act as local fallback).
+    # ------------------------------------------------------------------
+    await _cache.init_cache()
+
     # idempotent — safe on restart
     try:
         Base.metadata.create_all(bind=engine)
@@ -91,8 +99,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     yield
 
     # ------------------------------------------------------------------
-    # Graceful shutdown: drain in-flight keep-alive sockets
+    # Graceful shutdown: drain in-flight keep-alive sockets + Redis pool
     # ------------------------------------------------------------------
+    await _cache.close_cache()
     await http_client.aclose()
     print("[PERF] httpx.AsyncClient closed.")
     print("[--] Money Muling Detection System shutting down.")
@@ -149,16 +158,24 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# In-memory state (acceptable for a hackathon / demo context)
+# In-memory state – single-process fallback
+# ---------------------------------------------------------------------------
+# These are kept as a LOCAL fallback for when Redis is unavailable.  When
+# Redis is reachable, all state is written there instead so it is shared
+# across multiple Uvicorn workers and survives worker restarts.
+#
+#   _latest_analysis      → Redis key: vingoo:latest_analysis  (TTL 2 h)
+#   _victim_reports       → Redis list: vingoo:recent_reports  (max 200 items)
+#   _second_chance_reviews→ Redis list: vingoo:recent_reviews  (max 200 items)
 # ---------------------------------------------------------------------------
 
 # Stores the most recently computed analysis result for GET /export
 _latest_analysis: Optional[Dict[str, Any]] = None
 
-# Victim reports submitted via POST /report
+# Victim reports submitted via POST /report  (local fallback only)
 _victim_reports: List[Dict[str, Any]] = []
 
-# Second-chance dispute reviews submitted via POST /second-chance
+# Second-chance dispute reviews submitted via POST /second-chance  (local fallback only)
 _second_chance_reviews: List[Dict[str, Any]] = []
 
 
@@ -172,12 +189,14 @@ _second_chance_reviews: List[Dict[str, Any]] = []
     tags=["Operations"],
 )
 async def health_check() -> JSONResponse:
-    """Liveness probe."""
+    """Liveness probe – includes Redis cache status."""
+    cache_status = await _cache.cache_ping()
     return JSONResponse(
         content={
             "status": "healthy",
             "service": "Money Muling Detection System",
             "version": "1.0.0",
+            "cache": cache_status,
         }
     )
 
@@ -212,6 +231,10 @@ async def analyze(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty.",
         )
+
+    # Stable 16-char hex fingerprint of the raw CSV bytes – used as part of
+    # the Redis key for graph metrics so identical uploads hit the cache.
+    csv_hash = hashlib.sha256(contents).hexdigest()[:16]
 
     try:
         transactions, validation_report = parse_csv(contents)
@@ -309,9 +332,32 @@ async def analyze(
     })
     print(f"[AI] Status: {ai_overall_status} | accounts explained: {len(acct_ai['explanations'])} | rings summarised: {len(ring_ai['summaries'])}")
 
-    # cache for /export
+    # ------------------------------------------------------------------
+    # Cache results
+    # ------------------------------------------------------------------
+    result_dict = response.model_dump()
+
+    # 1. Full analysis – shared across workers via Redis (TTL 2 h)
+    await _cache.cache_set(_cache.KEY_LATEST_ANALYSIS, result_dict, _cache.TTL_ANALYSIS)
+
+    # 2. Lightweight graph metrics keyed by CSV fingerprint (TTL 30 min)
+    #    Allows re-uploads of the same CSV to skip graph-metric recomputation.
+    await _cache.cache_set(
+        _cache.key_graph_metrics(csv_hash),
+        {
+            "nodes":        total_accounts,
+            "edges":        G.number_of_edges(),
+            "density":      graph_density,
+            "transactions": total_transactions,
+            "suspicious":   len(suspicious_accounts),
+            "rings":        len(fraud_rings),
+        },
+        _cache.TTL_GRAPH_METRICS,
+    )
+
+    # 3. In-process fallback (single-worker only, loses on restart)
     global _latest_analysis
-    _latest_analysis = response.model_dump()
+    _latest_analysis = result_dict
 
     # persist — best-effort; wrapped in a thread so the event loop stays free
     def _do_persist() -> None:
@@ -391,11 +437,15 @@ async def submit_report(report: VictimReport) -> VictimReportAck:
     """Accept fraud report, assign a UUID, persist to DB."""
     report_id = f"RPT-{uuid.uuid4().hex[:10].upper()}"
 
-    _victim_reports.append(
-        {
-            "report_id": report_id,
-            **report.model_dump(),
-        }
+    report_dict = {"report_id": report_id, **report.model_dump()}
+
+    # Local fallback list + multi-worker Redis list (bounded, newest-first)
+    _victim_reports.append(report_dict)
+    await _cache.cache_lpush_bounded(
+        _cache.KEY_RECENT_REPORTS,
+        report_dict,
+        max_len=200,
+        ttl=_cache.TTL_REPORT_LIST,
     )
 
     def _do_persist_report() -> None:
@@ -446,16 +496,18 @@ async def submit_report(report: VictimReport) -> VictimReportAck:
 async def evaluate_latest() -> JSONResponse:
     """Run accuracy evaluation on the latest analysis results.
     Uses synthetic label generation when no ground truth is available."""
-    if _latest_analysis is None:
+    # Redis first → in-memory fallback → 404
+    data = await _cache.cache_get(_cache.KEY_LATEST_ANALYSIS) or _latest_analysis
+    if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No analysis available yet. Run POST /analyze first.",
         )
 
-    suspicious = _latest_analysis.get("suspicious_accounts", [])
-    total_accounts = _latest_analysis.get("summary", {}).get("total_accounts_analyzed", 0)
-    total_transactions = _latest_analysis.get("summary", {}).get("total_transactions", 0)
-    processing_time = _latest_analysis.get("summary", {}).get("processing_time_seconds", 0.0)
+    suspicious = data.get("suspicious_accounts", [])
+    total_accounts = data.get("summary", {}).get("total_accounts_analyzed", 0)
+    total_transactions = data.get("summary", {}).get("total_transactions", 0)
+    processing_time = data.get("summary", {}).get("processing_time_seconds", 0.0)
 
     # Reconstruct minimal SuspiciousAccount objects for evaluation
     from models import SuspiciousAccount as SA
@@ -481,8 +533,12 @@ async def evaluate_latest() -> JSONResponse:
     tags=["Detection"],
 )
 async def export_latest() -> JSONResponse:
-    """Return the last analysis result. 404 if none run yet."""
-    if _latest_analysis is None:
+    """Return the last analysis result. 404 if none run yet.
+
+    Lookup order: Redis (multi-worker shared) → in-memory fallback → 404.
+    """
+    data = await _cache.cache_get(_cache.KEY_LATEST_ANALYSIS) or _latest_analysis
+    if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -490,7 +546,7 @@ async def export_latest() -> JSONResponse:
                 "Please call POST /analyze first."
             ),
         )
-    return JSONResponse(content=_latest_analysis)
+    return JSONResponse(content=data)
 
 
 # ---------------------------------------------------------------------------
@@ -511,18 +567,25 @@ async def second_chance(request: SecondChanceRequest) -> SecondChanceAck:
     deadline = now + timedelta(hours=24)
     deadline_str = deadline.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    _second_chance_reviews.append(
-        {
-            "review_id": review_id,
-            "account_id": request.account_id,
-            "requester_name": request.requester_name,
-            "requester_contact": request.requester_contact,
-            "reason": request.reason,
-            "supporting_evidence": request.supporting_evidence,
-            "status": "pending",
-            "submitted_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
-            "review_deadline": deadline_str,
-        }
+    review_dict = {
+        "review_id": review_id,
+        "account_id": request.account_id,
+        "requester_name": request.requester_name,
+        "requester_contact": request.requester_contact,
+        "reason": request.reason,
+        "supporting_evidence": request.supporting_evidence,
+        "status": "pending",
+        "submitted_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "review_deadline": deadline_str,
+    }
+
+    # Local fallback list + multi-worker Redis list (bounded, newest-first)
+    _second_chance_reviews.append(review_dict)
+    await _cache.cache_lpush_bounded(
+        _cache.KEY_RECENT_REVIEWS,
+        review_dict,
+        max_len=200,
+        ttl=_cache.TTL_REVIEW_LIST,
     )
 
     def _do_persist_review() -> None:
@@ -675,16 +738,23 @@ def admin_list_analyses(
     summary="Full detail for a single analysis",
     tags=["Admin"],
 )
-def admin_get_analysis(
+async def admin_get_analysis(
     analysis_id: str,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     """Full detail for one analysis including accounts and rings.
 
-    Uses selectinload to retrieve both child relationships in exactly 3 SQL
-    queries (1 for analysis + 1 for accounts + 1 for rings) regardless of how
-    many child rows exist, preventing the N+1 that lazy loading would cause.
+    Lookup order:
+      1. Redis cache (TTL 5 min) – avoids DB round-trips on repeated views.
+      2. PostgreSQL via selectinload (3 queries, no N+1).
+      3. After DB fetch, write result back to Redis for subsequent callers.
     """
+    # ---- 1. Cache hit -------------------------------------------------------
+    cached = await _cache.cache_get(_cache.key_admin_analysis(analysis_id))
+    if cached is not None:
+        return JSONResponse(content=cached)
+
+    # ---- 2. DB query --------------------------------------------------------
     row = (
         db.query(Analysis)
         .options(
@@ -697,34 +767,41 @@ def admin_get_analysis(
     if row is None:
         raise HTTPException(status_code=404, detail="Analysis not found.")
 
-    return JSONResponse(
-        content={
-            "id": str(row.id),
-            "created_at": row.created_at.isoformat(),
-            "total_accounts": row.total_accounts,
-            "suspicious_flagged": row.suspicious_flagged,
-            "rings_detected": row.rings_detected,
-            "processing_time": row.processing_time,
-            "accounts": [
-                {
-                    "account_id": a.account_id,
-                    "suspicion_score": a.suspicion_score,
-                    "detected_patterns": a.detected_patterns,
-                    "ring_id": a.ring_id,
-                }
-                for a in row.accounts
-            ],
-            "rings": [
-                {
-                    "ring_id": r.ring_id,
-                    "member_accounts": r.member_accounts,
-                    "pattern_type": r.pattern_type,
-                    "risk_score": r.risk_score,
-                }
-                for r in row.rings
-            ],
-        }
+    content = {
+        "id": str(row.id),
+        "created_at": row.created_at.isoformat(),
+        "total_accounts": row.total_accounts,
+        "suspicious_flagged": row.suspicious_flagged,
+        "rings_detected": row.rings_detected,
+        "processing_time": row.processing_time,
+        "accounts": [
+            {
+                "account_id": a.account_id,
+                "suspicion_score": a.suspicion_score,
+                "detected_patterns": a.detected_patterns,
+                "ring_id": a.ring_id,
+            }
+            for a in row.accounts
+        ],
+        "rings": [
+            {
+                "ring_id": r.ring_id,
+                "member_accounts": r.member_accounts,
+                "pattern_type": r.pattern_type,
+                "risk_score": r.risk_score,
+            }
+            for r in row.rings
+        ],
+    }
+
+    # ---- 3. Populate cache --------------------------------------------------
+    await _cache.cache_set(
+        _cache.key_admin_analysis(analysis_id),
+        content,
+        _cache.TTL_ADMIN_DETAIL,
     )
+
+    return JSONResponse(content=content)
 
 
 # ---------------------------------------------------------------------------
