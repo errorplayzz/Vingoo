@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -39,6 +40,12 @@ class Analysis(Base):
 
     __tablename__ = "analyses"
 
+    # Composite descending index so ORDER BY created_at DESC LIMIT n
+    # resolves via an index scan without sorting the full table.
+    __table_args__ = (
+        Index("ix_analyses_created_at_brin", "created_at"),
+    )
+
     id = Column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -55,18 +62,20 @@ class Analysis(Base):
     rings_detected = Column(Integer, nullable=False)
     processing_time = Column(Float, nullable=False)
 
-    # relationships
+    # lazy="raise" forces callers to use explicit eager-loading (selectinload /
+    # joinedload).  Any accidental lazy access raises an exception at dev-time,
+    # preventing silent N+1 queries from ever reaching production.
     accounts = relationship(
         "AccountRecord",
         back_populates="analysis",
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="raise",
     )
     rings = relationship(
         "RingRecord",
         back_populates="analysis",
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="raise",
     )
 
 
@@ -79,6 +88,14 @@ class AccountRecord(Base):
     """One suspicious account record produced by an analysis."""
 
     __tablename__ = "accounts"
+
+    # Composite index covers: filter by analysis_id, sort by score descending
+    # (used by admin_get_analysis and future "top N accounts" queries).
+    # Also covers lookups by ring_id across analyses.
+    __table_args__ = (
+        Index("ix_accounts_analysis_score", "analysis_id", "suspicion_score"),
+        Index("ix_accounts_ring_id_cover",  "ring_id", "analysis_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     analysis_id = Column(
@@ -106,6 +123,11 @@ class RingRecord(Base):
 
     __tablename__ = "rings"
 
+    # Composite index covers: filter by analysis_id + sort by risk descending.
+    __table_args__ = (
+        Index("ix_rings_analysis_risk", "analysis_id", "risk_score"),
+    )
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     analysis_id = Column(
         UUID(as_uuid=True),
@@ -132,6 +154,12 @@ class Report(Base):
 
     __tablename__ = "reports"
 
+    # Composite index for status-filtered admin list views (e.g. "show pending").
+    # Partial index would be ideal in raw SQL; SQLAlchemy composite is portable.
+    __table_args__ = (
+        Index("ix_reports_status_submitted", "status", "submitted_at"),
+    )
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     report_id = Column(String(50), nullable=False, unique=True, index=True)
     reporter_name = Column(String(255), nullable=True)
@@ -143,13 +171,14 @@ class Report(Base):
     submitted_at = Column(DateTime(timezone=True), default=_now_utc, nullable=False)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
-    # One-to-one optional reward (created when report is approved)
+    # One-to-one optional reward (created when report is approved).
+    # lazy="raise" prevents accidental SELECT on every Report load.
     reward = relationship(
         "Reward",
         back_populates="report",
         uselist=False,
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="raise",
     )
 
 
@@ -162,6 +191,11 @@ class ReviewRequest(Base):
     """Second-chance dispute request submitted via POST /second-chance."""
 
     __tablename__ = "review_requests"
+
+    # Composite index for admin list filtered by status.
+    __table_args__ = (
+        Index("ix_reviews_status_submitted", "status", "submitted_at"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     review_id = Column(String(50), nullable=False, unique=True, index=True)

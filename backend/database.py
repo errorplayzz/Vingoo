@@ -42,25 +42,79 @@ if DATABASE_URL.startswith("postgres://"):
 # Engine
 # ---------------------------------------------------------------------------
 
-engine = create_engine(
-    DATABASE_URL,
-    # Send a lightweight probe on each connection checkout to detect
-    # stale connections before they cause mid-request failures.
-    pool_pre_ping=True,
-    # Keep a pool of 10 persistent connections; allow 20 additional overflow
-    # connections under burst load.
-    pool_size=10,
-    max_overflow=20,
-    # Recycle connections every 30 minutes to prevent stale/half-open TCP
-    # sockets (especially important behind PgBouncer / cloud proxies).
-    pool_recycle=1800,
-    # Maximum seconds to wait for a connection from the pool before raising.
-    pool_timeout=30,
-    # Pass a TCP-level connect timeout so cold-start hangs fail fast.
-    connect_args={"connect_timeout": 10},
-    # Silence per-statement SQL echo (set to True for debugging).
-    echo=False,
-)
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
+
+# Detect PgBouncer / Supabase transaction-mode proxies: in that mode the
+# server recycles connections between requests, so prepared statements and
+# connection-level settings don't survive – use NullPool + no prepares.
+_PGBOUNCER_MODE: bool = os.getenv("PGBOUNCER_MODE", "0") == "1"
+
+# psycopg2 TCP keepalive settings prevent ghost connections after network
+# blips (especially important on cloud PaaS with 5-min idle timeouts).
+_KEEPALIVE_CONNECT_ARGS = {
+    "connect_timeout": 10,
+    "keepalives": 1,
+    "keepalives_idle": 60,      # seconds before first keepalive probe
+    "keepalives_interval": 10,  # seconds between probes
+    "keepalives_count": 5,      # probes before declaring dead
+}
+
+if _PGBOUNCER_MODE:
+    # PgBouncer transaction mode: no persistent connections, no prepared stmts
+    engine = create_engine(
+        DATABASE_URL,
+        poolclass=NullPool,
+        connect_args={**_KEEPALIVE_CONNECT_ARGS},
+        echo=False,
+        # Disable prepared-statement cache so psycopg2 never sends PREPARE
+        execution_options={"postgresql_prepare_threshold": None},
+    )
+    print("[DB] PgBouncer/NullPool mode active.")
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        # Send a lightweight probe on each connection checkout to detect
+        # stale connections before they cause mid-request failures.
+        pool_pre_ping=True,
+        # Keep a pool of 10 persistent connections; allow 20 additional overflow
+        # connections under burst load.
+        pool_size=10,
+        max_overflow=20,
+        # Recycle connections every 30 minutes to prevent stale/half-open TCP
+        # sockets (especially important behind PgBouncer / cloud proxies).
+        pool_recycle=1800,
+        # Maximum seconds to wait for a connection from the pool before raising.
+        pool_timeout=30,
+        # TCP-level connect + keepalive settings
+        connect_args={**_KEEPALIVE_CONNECT_ARGS},
+        echo=False,
+        # Use psycopg2's executemany_values fast path: sends all rows in a
+        # single multi-row INSERT instead of one round-trip per row.
+        # This is the biggest write-path win for bulk account/ring inserts.
+        execution_options={"executemany_mode": "values_plus_batch"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# After-connect hook: set session-level planner parameters
+# ---------------------------------------------------------------------------
+
+@event.listens_for(engine, "connect")
+def _set_session_options(dbapi_conn, _connection_record) -> None:  # noqa: ANN001
+    """Apply PostgreSQL session settings on each new physical connection.
+
+    work_mem controls the memory budget for sorting/hashing before spilling to
+    disk. Raising it from the default (4 MB) to 16 MB avoids disk sorts on the
+    ORDER BY created_at / submitted_at queries in admin endpoints.
+    """
+    with dbapi_conn.cursor() as cur:
+        cur.execute("SET work_mem = '16MB'")
+        cur.execute("SET synchronous_commit = 'local'")
+        # Use index-only scans when statistics are fresh (default is on, just explicit)
+        cur.execute("SET enable_seqscan = on")
+        cur.execute("SET jit = off")  # JIT adds latency for OLTP queries < 10ms
 
 # ---------------------------------------------------------------------------
 # Session factory

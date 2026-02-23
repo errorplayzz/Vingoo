@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload, selectinload
 
 # ---------------------------------------------------------------------------
 # Install uvloop as the event-loop policy on Linux/macOS for ~2× throughput.
@@ -325,23 +326,42 @@ async def analyze(
             db.add(db_analysis)
             db.flush()  # get id before writing child rows
 
-            for acc in suspicious_accounts:
-                db.add(AccountRecord(
-                    analysis_id=db_analysis.id,
-                    account_id=acc.account_id,
-                    suspicion_score=acc.suspicion_score,
-                    detected_patterns=acc.detected_patterns,
-                    ring_id=acc.ring_id,
-                ))
+            # ------------------------------------------------------------------
+            # Bulk insert: sends all account + ring rows in a single multi-row
+            # INSERT per table (via psycopg2 executemany_mode=values_plus_batch)
+            # instead of one round-trip per ORM object.
+            # ------------------------------------------------------------------
+            if suspicious_accounts:
+                db.bulk_insert_mappings(
+                    AccountRecord,
+                    [
+                        {
+                            "id":                uuid.uuid4(),
+                            "analysis_id":       db_analysis.id,
+                            "account_id":        acc.account_id,
+                            "suspicion_score":   acc.suspicion_score,
+                            "detected_patterns": acc.detected_patterns,
+                            "ring_id":           acc.ring_id,
+                        }
+                        for acc in suspicious_accounts
+                    ],
+                )
 
-            for ring in fraud_rings:
-                db.add(RingRecord(
-                    analysis_id=db_analysis.id,
-                    ring_id=ring.ring_id,
-                    member_accounts=ring.member_accounts,
-                    pattern_type=ring.pattern_type,
-                    risk_score=ring.risk_score,
-                ))
+            if fraud_rings:
+                db.bulk_insert_mappings(
+                    RingRecord,
+                    [
+                        {
+                            "id":              uuid.uuid4(),
+                            "analysis_id":     db_analysis.id,
+                            "ring_id":         ring.ring_id,
+                            "member_accounts": ring.member_accounts,
+                            "pattern_type":    ring.pattern_type,
+                            "risk_score":      ring.risk_score,
+                        }
+                        for ring in fraud_rings
+                    ],
+                )
 
             db.commit()
             print(f"[DB] Analysis {db_analysis.id} persisted ({len(suspicious_accounts)} accounts, {len(fraud_rings)} rings).")
@@ -659,8 +679,21 @@ def admin_get_analysis(
     analysis_id: str,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    """Full detail for one analysis including accounts and rings."""
-    row = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+    """Full detail for one analysis including accounts and rings.
+
+    Uses selectinload to retrieve both child relationships in exactly 3 SQL
+    queries (1 for analysis + 1 for accounts + 1 for rings) regardless of how
+    many child rows exist, preventing the N+1 that lazy loading would cause.
+    """
+    row = (
+        db.query(Analysis)
+        .options(
+            selectinload(Analysis.accounts),
+            selectinload(Analysis.rings),
+        )
+        .filter(Analysis.id == analysis_id)
+        .first()
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="Analysis not found.")
 
@@ -749,8 +782,17 @@ def admin_approve_report(
     report_id: str,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    """Approve report and create a reward entry."""
-    report = db.query(Report).filter(Report.report_id == report_id).first()
+    """Approve report and create a reward entry.
+
+    Uses joinedload so report.reward is fetched in the same SELECT (LEFT JOIN),
+    preventing a second lazy-load SELECT when we check `if report.reward is None`.
+    """
+    report = (
+        db.query(Report)
+        .options(joinedload(Report.reward))
+        .filter(Report.report_id == report_id)
+        .first()
+    )
     if report is None:
         raise HTTPException(status_code=404, detail=f"Report {report_id!r} not found.")
     if report.status == "approved":
