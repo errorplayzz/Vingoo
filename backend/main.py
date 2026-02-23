@@ -4,17 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import httpx
 import networkx as nx
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+
+# ---------------------------------------------------------------------------
+# Install uvloop as the event-loop policy on Linux/macOS for ~2× throughput.
+# Silently skipped on Windows (unsupported) or when uvloop is not installed.
+# ---------------------------------------------------------------------------
+if sys.platform != "win32":
+    try:
+        import uvloop  # type: ignore[import-untyped]
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        print("[PERF] uvloop event-loop policy active.")
+    except ImportError:
+        print("[PERF] uvloop not installed – using default event loop.")
 
 # internal modules
 from ai_explainer import generate_account_explanations, generate_ring_summaries
@@ -41,6 +55,24 @@ from utils import build_graph, parse_csv
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     """App startup/shutdown lifecycle."""
+    # ------------------------------------------------------------------
+    # Shared httpx.AsyncClient – one TCP connection pool for the whole
+    # process; HTTP/2 multiplexing reduces per-request overhead.
+    # ------------------------------------------------------------------
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        http2=True,
+        limits=httpx.Limits(
+            max_connections=40,
+            max_keepalive_connections=20,
+            keepalive_expiry=30,
+        ),
+    )
+    # Wire into ai_explainer so all AI calls share this pool
+    import ai_explainer as _ai_mod
+    _ai_mod._http_client = http_client
+    print("[PERF] Shared httpx.AsyncClient initialised (HTTP/2, pool=40).")
+
     # idempotent — safe on restart
     try:
         Base.metadata.create_all(bind=engine)
@@ -56,6 +88,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
     print("[OK] Money Muling Detection System started - ready to accept requests.")
     yield
+
+    # ------------------------------------------------------------------
+    # Graceful shutdown: drain in-flight keep-alive sockets
+    # ------------------------------------------------------------------
+    await http_client.aclose()
+    print("[PERF] httpx.AsyncClient closed.")
     print("[--] Money Muling Detection System shutting down.")
 
 
@@ -274,43 +312,46 @@ async def analyze(
     global _latest_analysis
     _latest_analysis = response.model_dump()
 
-    # persist — best-effort, never blocks the response
-    db: Session = SessionLocal()
-    try:
-        db_analysis = Analysis(
-            total_accounts=summary.total_accounts_analyzed,
-            suspicious_flagged=summary.suspicious_accounts_flagged,
-            rings_detected=summary.fraud_rings_detected,
-            processing_time=summary.processing_time_seconds,
-        )
-        db.add(db_analysis)
-        db.flush()  # get id before writing child rows
+    # persist — best-effort; wrapped in a thread so the event loop stays free
+    def _do_persist() -> None:
+        db: Session = SessionLocal()
+        try:
+            db_analysis = Analysis(
+                total_accounts=summary.total_accounts_analyzed,
+                suspicious_flagged=summary.suspicious_accounts_flagged,
+                rings_detected=summary.fraud_rings_detected,
+                processing_time=summary.processing_time_seconds,
+            )
+            db.add(db_analysis)
+            db.flush()  # get id before writing child rows
 
-        for acc in suspicious_accounts:
-            db.add(AccountRecord(
-                analysis_id=db_analysis.id,
-                account_id=acc.account_id,
-                suspicion_score=acc.suspicion_score,
-                detected_patterns=acc.detected_patterns,
-                ring_id=acc.ring_id,
-            ))
+            for acc in suspicious_accounts:
+                db.add(AccountRecord(
+                    analysis_id=db_analysis.id,
+                    account_id=acc.account_id,
+                    suspicion_score=acc.suspicion_score,
+                    detected_patterns=acc.detected_patterns,
+                    ring_id=acc.ring_id,
+                ))
 
-        for ring in fraud_rings:
-            db.add(RingRecord(
-                analysis_id=db_analysis.id,
-                ring_id=ring.ring_id,
-                member_accounts=ring.member_accounts,
-                pattern_type=ring.pattern_type,
-                risk_score=ring.risk_score,
-            ))
+            for ring in fraud_rings:
+                db.add(RingRecord(
+                    analysis_id=db_analysis.id,
+                    ring_id=ring.ring_id,
+                    member_accounts=ring.member_accounts,
+                    pattern_type=ring.pattern_type,
+                    risk_score=ring.risk_score,
+                ))
 
-        db.commit()
-        print(f"[DB] Analysis {db_analysis.id} persisted ({len(suspicious_accounts)} accounts, {len(fraud_rings)} rings).")
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        print(f"[DB ERROR] Failed to persist analysis: {exc}")
-    finally:
-        db.close()
+            db.commit()
+            print(f"[DB] Analysis {db_analysis.id} persisted ({len(suspicious_accounts)} accounts, {len(fraud_rings)} rings).")
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            print(f"[DB ERROR] Failed to persist analysis: {exc}")
+        finally:
+            db.close()
+
+    await asyncio.to_thread(_do_persist)
 
     return response
 
@@ -337,24 +378,27 @@ async def submit_report(report: VictimReport) -> VictimReportAck:
         }
     )
 
-    db: Session = SessionLocal()
-    try:
-        db.add(Report(
-            report_id=report_id,
-            reporter_name=report.reporter_name,
-            reporter_contact=report.reporter_contact,
-            suspect_account_id=report.suspect_account_id,
-            incident_description=report.incident_description,
-            incident_date=report.incident_date,
-            status="received",
-        ))
-        db.commit()
-        print(f"[DB] Report {report_id} persisted.")
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        print(f"[DB ERROR] Failed to persist report {report_id}: {exc}")
-    finally:
-        db.close()
+    def _do_persist_report() -> None:
+        db: Session = SessionLocal()
+        try:
+            db.add(Report(
+                report_id=report_id,
+                reporter_name=report.reporter_name,
+                reporter_contact=report.reporter_contact,
+                suspect_account_id=report.suspect_account_id,
+                incident_description=report.incident_description,
+                incident_date=report.incident_date,
+                status="received",
+            ))
+            db.commit()
+            print(f"[DB] Report {report_id} persisted.")
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            print(f"[DB ERROR] Failed to persist report {report_id}: {exc}")
+        finally:
+            db.close()
+
+    await asyncio.to_thread(_do_persist_report)
 
     return VictimReportAck(
         status="received",
@@ -461,26 +505,29 @@ async def second_chance(request: SecondChanceRequest) -> SecondChanceAck:
         }
     )
 
-    db: Session = SessionLocal()
-    try:
-        db.add(ReviewRequest(
-            review_id=review_id,
-            account_id=request.account_id,
-            requester_name=request.requester_name,
-            requester_contact=request.requester_contact,
-            reason=request.reason,
-            supporting_evidence=request.supporting_evidence,
-            status="pending",
-            submitted_at=now,
-            review_deadline=deadline_str,
-        ))
-        db.commit()
-        print(f"[DB] Review request {review_id} persisted.")
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        print(f"[DB ERROR] Failed to persist review {review_id}: {exc}")
-    finally:
-        db.close()
+    def _do_persist_review() -> None:
+        db: Session = SessionLocal()
+        try:
+            db.add(ReviewRequest(
+                review_id=review_id,
+                account_id=request.account_id,
+                requester_name=request.requester_name,
+                requester_contact=request.requester_contact,
+                reason=request.reason,
+                supporting_evidence=request.supporting_evidence,
+                status="pending",
+                submitted_at=now,
+                review_deadline=deadline_str,
+            ))
+            db.commit()
+            print(f"[DB] Review request {review_id} persisted.")
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            print(f"[DB ERROR] Failed to persist review {review_id}: {exc}")
+        finally:
+            db.close()
+
+    await asyncio.to_thread(_do_persist_review)
 
     return SecondChanceAck(
         review_id=review_id,

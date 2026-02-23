@@ -47,11 +47,17 @@ engine = create_engine(
     # Send a lightweight probe on each connection checkout to detect
     # stale connections before they cause mid-request failures.
     pool_pre_ping=True,
-    # Keep a pool of 5 persistent connections; allow 10 additional overflow
-    # connections under burst load.  These are conservative defaults suitable
-    # for a single Uvicorn worker.
-    pool_size=5,
-    max_overflow=10,
+    # Keep a pool of 10 persistent connections; allow 20 additional overflow
+    # connections under burst load.
+    pool_size=10,
+    max_overflow=20,
+    # Recycle connections every 30 minutes to prevent stale/half-open TCP
+    # sockets (especially important behind PgBouncer / cloud proxies).
+    pool_recycle=1800,
+    # Maximum seconds to wait for a connection from the pool before raising.
+    pool_timeout=30,
+    # Pass a TCP-level connect timeout so cold-start hangs fail fast.
+    connect_args={"connect_timeout": 10},
     # Silence per-statement SQL echo (set to True for debugging).
     echo=False,
 )

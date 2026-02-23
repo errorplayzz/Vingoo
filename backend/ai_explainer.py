@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 from typing import Any, Dict, List
 
-import requests
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -26,13 +25,32 @@ _MAX_TOKENS     = 800
 _TIMEOUT_SECS   = 25          # Hard wall-clock cap per request
 _TOP_N_ACCOUNTS = 5           # Layer 1 only explains the highest-risk accounts
 
+# ---------------------------------------------------------------------------
+# Shared async HTTP client – injected by lifespan in main.py
+# ---------------------------------------------------------------------------
+
+# Set by main.py lifespan on startup; falls back to a per-call client if None.
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return the shared client or a fresh one (fallback — avoids None guard)."""
+    if _http_client is not None:
+        return _http_client
+    # Fallback: create a temporary client (should only happen in tests)
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(_TIMEOUT_SECS),
+        http2=True,
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+    )
+
 
 # ---------------------------------------------------------------------------
-# Internal: single synchronous POST to OpenRouter
+# Internal: single async POST to OpenRouter
 # ---------------------------------------------------------------------------
 
-def _call_openrouter(prompt: str) -> str:
-    """Single synchronous POST to OpenRouter. Returns raw assistant message string."""
+async def _call_openrouter_async(prompt: str) -> str:
+    """Fully async POST to OpenRouter using the shared httpx.AsyncClient."""
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set or empty.")
@@ -51,18 +69,18 @@ def _call_openrouter(prompt: str) -> str:
         ],
     }
 
+    client = _get_client()
     try:
-        resp = requests.post(
+        resp = await client.post(
             _OPENROUTER_URL,
             headers=headers,
             json=payload,
-            timeout=_TIMEOUT_SECS,
         )
-    except requests.exceptions.Timeout as exc:
+    except httpx.TimeoutException as exc:
         raise RuntimeError(f"OpenRouter request timed out after {_TIMEOUT_SECS}s.") from exc
-    except requests.exceptions.ConnectionError as exc:
+    except httpx.ConnectError as exc:
         raise RuntimeError(f"OpenRouter connection error: {exc}") from exc
-    except requests.exceptions.RequestException as exc:
+    except httpx.HTTPError as exc:
         raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
 
     if resp.status_code != 200:
@@ -154,7 +172,7 @@ Accounts:
 """
 
     try:
-        raw = await asyncio.to_thread(_call_openrouter, prompt)
+        raw = await _call_openrouter_async(prompt)
         parsed = _parse_json_array(raw)
         # Validate minimal shape
         for item in parsed:
@@ -217,7 +235,7 @@ Fraud rings:
 """
 
     try:
-        raw = await asyncio.to_thread(_call_openrouter, prompt)
+        raw = await _call_openrouter_async(prompt)
         parsed = _parse_json_array(raw)
         for item in parsed:
             if "ring_id" not in item or "summary" not in item:
