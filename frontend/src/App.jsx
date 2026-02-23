@@ -1,6 +1,7 @@
 import { lazy, Suspense, memo } from 'react';
-import { AnalysisProvider } from './context/AnalysisContext';
-import { ToastProvider }    from './context/ToastContext';
+import { AnalysisProvider }     from './context/AnalysisContext';
+import { ToastProvider }        from './context/ToastContext';
+import { useSseInvalidation }   from './hooks/useSseInvalidation';
 import Navbar              from './components/Navbar';
 import Hero                from './sections/Hero';
 import HowItWorks          from './sections/HowItWorks';
@@ -30,6 +31,10 @@ const SectionFallback = memo(() => (
 ));
 
 function App() {
+  // Opens /stream/analysis and invalidates ["admin","analyses"] on
+  // analysis_complete events.  No re-renders; purely a cache side-effect.
+  useSseInvalidation();
+
   return (
     <ToastProvider>
       <AnalysisProvider>

@@ -13,7 +13,7 @@
  *  5. Devtools: @tanstack/react-query-devtools gives full cache visibility in
  *     development (add to main.jsx if needed).
  */
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   getAdminAnalyses,
   getAdminAnalysis,
@@ -38,8 +38,11 @@ export const ADMIN_KEYS = {
 };
 
 /* ── Stale times ─────────────────────────────────────────────────────────── */
-const STALE_LIST   = 30_000;   // List pages: 30 s
-const STALE_DETAIL = 60_000;   // Detail views: 1 min (less volatile)
+// Mirror the global QueryClient staleTime so there is one source of truth.
+// List views refresh every 60 s; detail views are point-in-time snapshots
+// that never change after creation, so they stay fresh indefinitely.
+const STALE_LIST   = 60_000;      // 60 s — matches global default
+const STALE_DETAIL = Infinity;     // analysis snapshots are immutable
 
 /* ── List queries ─────────────────────────────────────────────────────────── */
 
@@ -53,6 +56,13 @@ export function useAdminAnalyses(enabled = true) {
     queryFn:  () => getAdminAnalyses(0, 50),
     staleTime: STALE_LIST,
     enabled,
+    // Disable focus-triggered refetch at the hook level (defence-in-depth:
+    // the global QueryClient default also sets this, but being explicit here
+    // means the hook is correct even if the global default changes).
+    refetchOnWindowFocus: false,
+    // While a background refetch is in flight, keep showing the previous data
+    // instead of switching the component to a loading skeleton.
+    placeholderData: keepPreviousData,
     // Normalise to [] so callers never have to guard against undefined
     select: (data) => (Array.isArray(data) ? data : []),
   });
@@ -65,8 +75,11 @@ export function useAdminAnalysisDetail(id) {
   return useQuery({
     queryKey: ADMIN_KEYS.analysis(id),
     queryFn:  () => getAdminAnalysis(id),
+    // Analysis snapshots are immutable: once fetched, the data never changes,
+    // so mark as permanently fresh to prevent any background re-fetches.
     staleTime: STALE_DETAIL,
     enabled:  !!id,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -79,6 +92,8 @@ export function useAdminReports(enabled = true) {
     queryFn:  () => getAdminReports(0, 50),
     staleTime: STALE_LIST,
     enabled,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
     select: (data) => (Array.isArray(data) ? data : []),
   });
 }
@@ -92,6 +107,8 @@ export function useAdminReviews(enabled = true) {
     queryFn:  () => getAdminReviews(0, 50),
     staleTime: STALE_LIST,
     enabled,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
     select: (data) => (Array.isArray(data) ? data : []),
   });
 }
