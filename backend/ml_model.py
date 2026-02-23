@@ -55,9 +55,11 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -96,6 +98,50 @@ ML_BOOST_WEIGHT = 1.0
 
 # Model persistence path (relative to this file)
 _DEFAULT_MODEL_PATH = Path(__file__).parent / "models" / "isolation_forest.pkl"
+
+# Maximum number of historical feature rows used for scheduler-triggered retrain.
+RETRAIN_MAX_ROWS: int = 20_000
+
+# ---------------------------------------------------------------------------
+# Module-level model registry
+# ---------------------------------------------------------------------------
+# The registry holds one trained Pipeline at a time.  All incoming prediction
+# requests read from it; the background scheduler swaps it atomically while
+# predictions are never blocked (RLock allows concurrent readers in CPython
+# because the GIL already serialises frame execution).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ModelState:
+    pipeline:   Optional[Pipeline] = None
+    trained_at: Optional[float]    = None  # time.time() epoch
+    n_samples:  int                = 0
+    source:     str                = "none"  # "disk" | "inline" | "scheduler"
+
+
+_registry_lock: threading.RLock = threading.RLock()
+_registry: _ModelState = _ModelState()
+
+
+def get_current_model() -> Optional[Pipeline]:
+    """Thread-safe read of the current production model. Returns None if not yet ready."""
+    with _registry_lock:
+        return _registry.pipeline
+
+
+def _set_model(pipeline: Pipeline, source: str, n_samples: int) -> None:
+    """Atomically replace the production model.  Called by startup_init and the scheduler."""
+    with _registry_lock:
+        _registry.pipeline   = pipeline
+        _registry.trained_at = time.time()
+        _registry.n_samples  = n_samples
+        _registry.source     = source
+    log.info(
+        "[ML] Model registry updated: source=%s  n_samples=%d",
+        source, n_samples,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Feature extraction
@@ -358,10 +404,22 @@ def run_ml_layer(
     # Feature extraction
     features = extract_features(accounts)
 
-    # Training
+    # ------------------------------------------------------------------
+    # Model acquisition
+    # Use the shared registry model when available (no training cost in the
+    # request path).  Fall back to inline training only on the very first
+    # request before startup_init has finished loading / training a model.
+    # ------------------------------------------------------------------
     t_train_start = time.perf_counter()
-    pipeline = train_isolation_forest(features)
-    diag["train_ms"] = (time.perf_counter() - t_train_start) * 1000.0
+    pipeline = get_current_model()
+    if pipeline is None:
+        log.info("[ML] No pre-trained model – training inline (first-request fallback).")
+        pipeline = train_isolation_forest(features)
+        _set_model(pipeline, "inline", features.shape[0])
+        save_model(pipeline)  # persist so next startup skips this path
+        diag["train_ms"] = (time.perf_counter() - t_train_start) * 1000.0
+    else:
+        diag["train_ms"] = 0.0  # training happened outside the request path
 
     # Prediction
     t_pred_start = time.perf_counter()
@@ -445,3 +503,100 @@ def load_model(
     except Exception as exc:  # noqa: BLE001
         log.warning("[ML] Failed to load cached model (%s) – will retrain.", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Startup initialisation
+# ---------------------------------------------------------------------------
+
+
+def startup_init(db_session_factory: Optional[Callable] = None) -> None:
+    """Load a persisted model or train an initial one from historical DB features.
+
+    Must be called once at application startup.  Use asyncio.to_thread() so it
+    does not block the event loop:
+
+        await asyncio.to_thread(startup_init, SessionLocal)
+
+    Resolution order:
+      1. Deserialise from disk (fast, ~10 ms) → update registry.
+      2. Retrain from stored MLFeatureRecord rows (if DB has ≥10 rows).
+      3. Defer → first analysis request will train inline and update registry.
+    """
+    existing = load_model()
+    if existing is not None:
+        _set_model(existing, "disk", 0)
+        print("[ML] Pre-trained IsolationForest loaded from disk at startup.")
+        return
+
+    if db_session_factory is not None:
+        try:
+            _retrain_from_db(db_session_factory)
+            if get_current_model() is not None:
+                print("[ML] Initial IsolationForest trained from historical DB features.")
+                return
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[ML] startup_init DB train failed: %s", exc)
+
+    print("[ML] No pre-trained model found – will train inline on first request.")
+
+
+# ---------------------------------------------------------------------------
+# Scheduled retraining (called by APScheduler background thread)
+# ---------------------------------------------------------------------------
+
+
+def scheduled_retrain(db_session_factory: Callable) -> None:
+    """Retrain the IsolationForest from stored historical features.
+
+    APScheduler calls this every 30 minutes in a daemon background thread.
+    It never blocks the event loop or any API request.
+    """
+    log.info("[ML] Scheduled retrain triggered.")
+    try:
+        _retrain_from_db(db_session_factory)
+    except Exception as exc:  # noqa: BLE001
+        log.error("[ML] Scheduled retrain failed: %s", exc, exc_info=True)
+
+
+def _retrain_from_db(db_session_factory: Callable) -> None:
+    """Fetch up to RETRAIN_MAX_ROWS feature vectors from the DB and retrain.
+
+    Reads the most recent RETRAIN_MAX_ROWS rows from ml_features, ordered by
+    recorded_at DESC so the model reflects current fraud patterns.
+    Atomically swaps the registry model and persists to disk on success.
+    """
+    from models_db import MLFeatureRecord  # local import avoids circular dep
+
+    db = db_session_factory()
+    try:
+        rows = (
+            db.query(MLFeatureRecord)
+            .order_by(MLFeatureRecord.recorded_at.desc())
+            .limit(RETRAIN_MAX_ROWS)
+            .all()
+        )
+    finally:
+        db.close()
+
+    if len(rows) < 2:
+        log.info(
+            "[ML] Skipping retrain – only %d feature rows in DB (need ≥2).",
+            len(rows),
+        )
+        return
+
+    features = np.array([r.feature_vector for r in rows], dtype=np.float32)
+
+    t0 = time.perf_counter()
+    pipeline = train_isolation_forest(features)
+    elapsed_ms = (time.perf_counter() - t0) * 1_000.0
+
+    _set_model(pipeline, "scheduler", len(rows))
+    save_model(pipeline)
+
+    log.info(
+        "[ML] Retrain complete: n=%d  elapsed=%.0f ms  source=scheduler",
+        len(rows), elapsed_ms,
+    )
+    print(f"[ML] Scheduled retrain: n_samples={len(rows)}  elapsed={elapsed_ms:.0f} ms")

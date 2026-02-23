@@ -55,6 +55,10 @@ scikit-learn>=1.4.0
 # (also a transitive dep of pandas/networkx – pinned here for explicitness)
 numpy>=1.26.0
 
+# APScheduler: background thread scheduler for periodic IsolationForest retraining
+# v3.x stable release line (v4.x is a redesign still in beta)
+apscheduler>=3.10.0
+
 # ── Security hardening ────────────────────────────────────────────────────────
 
 # JWT creation + verification (HMAC-SHA256 / RS256)

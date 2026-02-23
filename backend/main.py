@@ -46,12 +46,13 @@ from models import (
     VictimReport,
     VictimReportAck,
 )
-from models_db import AccountRecord, Analysis, Report, ReviewRequest, Reward, RingRecord
+from models_db import AccountRecord, Analysis, MLFeatureRecord, Report, ReviewRequest, Reward, RingRecord
 from scoring import build_score_lookup, compute_ring_scores, compute_suspicion_scores
 from utils import build_graph, parse_csv
 import cache as _cache
-from ml_model import run_ml_layer
+from ml_model import run_ml_layer, startup_init, extract_features
 import sse as _sse
+from scheduler import start_scheduler, stop_scheduler
 from auth import (
     AUTH_ENABLED,
     ADMIN_LIMIT,
@@ -118,12 +119,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         # DB down at boot — keep serving without persistence
         print("[DB WARNING] Database is unreachable - persistence will be skipped.")
 
+    # ------------------------------------------------------------------
+    # ML layer: load or train the IsolationForest before accepting traffic.
+    # Run in a thread so the async event loop is not blocked during fit.
+    # Resolution order: disk cache → DB history → defer to first request.
+    # ------------------------------------------------------------------
+    await asyncio.to_thread(startup_init, SessionLocal)
+
+    # ------------------------------------------------------------------
+    # Background scheduler: retrains the model every 30 minutes using the
+    # ml_features rows written after each completed analysis.
+    # ------------------------------------------------------------------
+    start_scheduler(SessionLocal)
+
     print("[OK] Money Muling Detection System started - ready to accept requests.")
     yield
 
     # ------------------------------------------------------------------
     # Graceful shutdown: drain in-flight keep-alive sockets + Redis pool
     # ------------------------------------------------------------------
+    stop_scheduler()
     await _cache.close_cache()
     await http_client.aclose()
     print("[PERF] httpx.AsyncClient closed.")
@@ -380,6 +395,8 @@ async def analyze(
     # the multi-dimensional feature space, even if their rule-based score
     # was borderline.  Silently skipped if batch < 2 accounts.
     # ------------------------------------------------------------------
+    # Capture pre-boost accounts for feature persistence (used by retrain)
+    _pre_ml_accounts = suspicious_accounts
     try:
         suspicious_accounts, ml_diag = run_ml_layer(suspicious_accounts)
     except Exception as _ml_exc:  # noqa: BLE001
@@ -575,6 +592,40 @@ async def analyze(
 
             db.commit()
             print(f"[DB] Analysis {db_analysis.id} persisted ({len(suspicious_accounts)} accounts, {len(fraud_rings)} rings).")
+
+            # ------------------------------------------------------------------
+            # Persist ML feature vectors for future scheduled retrain.
+            # Extracted from the pre-boost suspicious accounts so the feature
+            # distribution is uncontaminated by the ML layer's own output.
+            # ------------------------------------------------------------------
+            if _pre_ml_accounts:
+                try:
+                    feature_matrix = extract_features(_pre_ml_accounts)
+                    db2: Session = SessionLocal()
+                    try:
+                        db2.bulk_insert_mappings(
+                            MLFeatureRecord,
+                            [
+                                {
+                                    "id":             uuid.uuid4(),
+                                    "analysis_id":    db_analysis.id,
+                                    "feature_vector": feature_matrix[i].tolist(),
+                                }
+                                for i in range(len(_pre_ml_accounts))
+                            ],
+                        )
+                        db2.commit()
+                        print(
+                            f"[ML] {len(_pre_ml_accounts)} feature vectors persisted "
+                            f"for analysis {db_analysis.id}."
+                        )
+                    except Exception as _feat_exc:  # noqa: BLE001
+                        db2.rollback()
+                        print(f"[ML WARNING] Feature persistence failed: {_feat_exc}")
+                    finally:
+                        db2.close()
+                except Exception as _feat_exc:  # noqa: BLE001
+                    print(f"[ML WARNING] Feature extraction for persistence failed: {_feat_exc}")
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             print(f"[DB ERROR] Failed to persist analysis: {exc}")

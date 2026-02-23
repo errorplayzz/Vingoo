@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
 )
@@ -180,6 +181,42 @@ class Report(Base):
         cascade="all, delete-orphan",
         lazy="raise",
     )
+
+
+# ---------------------------------------------------------------------------
+# ml_features  (additive — written by analysis pipeline, read by scheduler)
+# ---------------------------------------------------------------------------
+
+
+class MLFeatureRecord(Base):
+    """Stores the 11-dim IsolationForest feature vector for each suspicious account.
+
+    Written per-analysis immediately after scoring (before ML boost) so the
+    background retraining job has a growing corpus of real observed feature
+    distributions to learn from.
+
+    Rows are pruned to a rolling 20 000-record window during each retrain.
+    """
+
+    __tablename__ = "ml_features"
+
+    __table_args__ = (
+        # Scheduler reads most-recent rows; this index makes the ORDER BY + LIMIT
+        # scan O(LIMIT) instead of O(table_size).
+        Index("ix_ml_features_recorded_at", "recorded_at"),
+        # Cascade deletes when parent analysis is removed.
+        Index("ix_ml_features_analysis_id", "analysis_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    analysis_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    recorded_at = Column(DateTime(timezone=True), default=_now_utc, nullable=False)
+    # 11-element list [float, ...] serialised as JSON (JSONB on Postgres)
+    feature_vector = Column(JSON, nullable=False)
 
 
 # ---------------------------------------------------------------------------
