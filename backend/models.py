@@ -162,6 +162,10 @@ class AnalysisSummary(BaseModel):
     graph_density: float = Field(
         default=0.0, description="Graph edge density (edges / possible edges)"
     )
+    ml_active: bool = Field(
+        default=False,
+        description="True when the IsolationForest anomaly layer ran successfully"
+    )
 
 
 class AnalysisResponse(BaseModel):
@@ -186,6 +190,13 @@ class AnalysisResponse(BaseModel):
     )
     ai_status: Optional[str] = Field(
         None, description="'active' | 'unavailable'"
+    )
+    ml_diagnostics: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "IsolationForest layer diagnostics: training/prediction latency, "
+            "average score boost, and whether ML was active for this batch."
+        ),
     )
 
 

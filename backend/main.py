@@ -50,6 +50,7 @@ from models_db import AccountRecord, Analysis, Report, ReviewRequest, Reward, Ri
 from scoring import build_score_lookup, compute_ring_scores, compute_suspicion_scores
 from utils import build_graph, parse_csv
 import cache as _cache
+from ml_model import run_ml_layer
 
 # ---------------------------------------------------------------------------
 # Application lifespan (replaces deprecated @app.on_event)
@@ -273,6 +274,19 @@ async def analyze(
         high_volume_accounts=high_volume,
     )
 
+    # ------------------------------------------------------------------
+    # ML layer: IsolationForest anomaly pass
+    # Runs in-process on the suspicious_accounts feature matrix.
+    # Adds up to +18 points for accounts that are statistical outliers in
+    # the multi-dimensional feature space, even if their rule-based score
+    # was borderline.  Silently skipped if batch < 2 accounts.
+    # ------------------------------------------------------------------
+    try:
+        suspicious_accounts, ml_diag = run_ml_layer(suspicious_accounts)
+    except Exception as _ml_exc:  # noqa: BLE001
+        ml_diag = {"ml_active": 0.0, "error": str(_ml_exc)}
+        print(f"[ML WARNING] IsolationForest skipped: {_ml_exc}")
+
     score_lookup = build_score_lookup(suspicious_accounts)
 
     # score rings (pass G for amount circulation calculation)
@@ -306,6 +320,7 @@ async def analyze(
         total_suspicious_amount=round(total_suspicious_amount, 2),
         detection_coverage=detection_coverage,
         graph_density=graph_density,
+        ml_active=bool(ml_diag.get("ml_active", 0)),
     )
 
     response = AnalysisResponse(
@@ -313,6 +328,15 @@ async def analyze(
         fraud_rings=fraud_rings,
         summary=summary,
         validation_report=validation_report,
+        ml_diagnostics={
+            "train_ms":          round(ml_diag.get("train_ms", 0.0), 2),
+            "predict_ms":        round(ml_diag.get("predict_ms", 0.0), 2),
+            "total_ms":          round(ml_diag.get("total_ms", 0.0), 2),
+            "avg_boost":         round(ml_diag.get("avg_boost", 0.0), 3),
+            "max_boost_applied": round(ml_diag.get("max_boost_applied", 0.0), 3),
+            "n_accounts":        int(ml_diag.get("n_accounts", 0)),
+            "active":            bool(ml_diag.get("ml_active", 0)),
+        },
     )
 
     # AI layer — both calls concurrent, failures don't block detection results
