@@ -14,9 +14,9 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 import networkx as nx
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -51,6 +51,7 @@ from scoring import build_score_lookup, compute_ring_scores, compute_suspicion_s
 from utils import build_graph, parse_csv
 import cache as _cache
 from ml_model import run_ml_layer
+import sse as _sse
 
 # ---------------------------------------------------------------------------
 # Application lifespan (replaces deprecated @app.on_event)
@@ -237,6 +238,13 @@ async def analyze(
     # the Redis key for graph metrics so identical uploads hit the cache.
     csv_hash = hashlib.sha256(contents).hexdigest()[:16]
 
+    # Notify subscribers that a new analysis has started
+    await _sse.emit_analysis_started(
+        filename=file.filename or "upload.csv",
+        n_transactions=0,   # actual count known after parse
+        csv_hash=csv_hash,
+    )
+
     try:
         transactions, validation_report = parse_csv(contents)
     except ValueError as exc:
@@ -252,14 +260,16 @@ async def analyze(
         )
 
     total_transactions = len(transactions)
+    await _sse.emit_analysis_progress("parsing", 10, f"{total_transactions} transactions parsed")
 
     # build graph
     G = build_graph(transactions)
-
     total_accounts = G.number_of_nodes()
+    await _sse.emit_analysis_progress("graph_build", 25, f"{total_accounts} accounts, {G.number_of_edges()} edges")
 
     # run detections
     detection_result = run_all_detections(G)
+    await _sse.emit_analysis_progress("detection", 45, f"{len(detection_result['rings'])} rings found")
 
     account_patterns: Dict[str, List[str]] = detection_result["account_patterns"]
     rings: List[Dict] = detection_result["rings"]
@@ -273,6 +283,7 @@ async def analyze(
         account_ring_map=account_ring_map,
         high_volume_accounts=high_volume,
     )
+    await _sse.emit_analysis_progress("scoring", 60, f"{len(suspicious_accounts)} suspicious accounts scored")
 
     # ------------------------------------------------------------------
     # ML layer: IsolationForest anomaly pass
@@ -286,11 +297,39 @@ async def analyze(
     except Exception as _ml_exc:  # noqa: BLE001
         ml_diag = {"ml_active": 0.0, "error": str(_ml_exc)}
         print(f"[ML WARNING] IsolationForest skipped: {_ml_exc}")
+    await _sse.emit_analysis_progress("ml", 75, f"ML layer {'active' if ml_diag.get('ml_active') else 'skipped'}")
 
     score_lookup = build_score_lookup(suspicious_accounts)
 
     # score rings (pass G for amount circulation calculation)
     fraud_rings = compute_ring_scores(rings, score_lookup, G=G)
+
+    # ------------------------------------------------------------------
+    # Emit real-time alerts for CRITICAL and HIGH accounts + all rings.
+    # asyncio.gather() fires all emits concurrently without blocking.
+    # ------------------------------------------------------------------
+    alert_coros = [
+        _sse.emit_alert(
+            account_id=acc.account_id,
+            risk_tier=acc.risk_tier,
+            suspicion_score=acc.suspicion_score,
+            detected_patterns=acc.detected_patterns,
+            ring_id=acc.ring_id,
+        )
+        for acc in suspicious_accounts
+        if acc.risk_tier in ("CRITICAL", "HIGH")
+    ]
+    ring_coros = [
+        _sse.emit_ring_detected(
+            ring_id=r.ring_id,
+            member_count=len(r.member_accounts),
+            pattern_type=r.pattern_type,
+            risk_score=r.risk_score,
+        )
+        for r in fraud_rings
+    ]
+    if alert_coros or ring_coros:
+        await asyncio.gather(*alert_coros, *ring_coros)
 
     t_end = time.perf_counter()
     processing_time = round(t_end - t_start, 4)
@@ -355,6 +394,7 @@ async def analyze(
         "ai_status":       ai_overall_status,
     })
     print(f"[AI] Status: {ai_overall_status} | accounts explained: {len(acct_ai['explanations'])} | rings summarised: {len(ring_ai['summaries'])}")
+    await _sse.emit_analysis_progress("ai", 90, f"AI status: {ai_overall_status}")
 
     # ------------------------------------------------------------------
     # Cache results
@@ -382,6 +422,18 @@ async def analyze(
     # 3. In-process fallback (single-worker only, loses on restart)
     global _latest_analysis
     _latest_analysis = result_dict
+
+    # Notify subscribers that this analysis is fully complete
+    await _sse.emit_analysis_complete({
+        "total_accounts":    total_accounts,
+        "suspicious":        len(suspicious_accounts),
+        "rings":             len(fraud_rings),
+        "high_risk":         high_risk_count,
+        "processing_time_s": processing_time,
+        "ml_active":         bool(ml_diag.get("ml_active", 0)),
+        "ai_status":         ai_overall_status,
+    })
+    await _sse.emit_analysis_progress("done", 100)
 
     # persist — best-effort; wrapped in a thread so the event loop stays free
     def _do_persist() -> None:
@@ -493,6 +545,9 @@ async def submit_report(report: VictimReport) -> VictimReportAck:
             db.close()
 
     await asyncio.to_thread(_do_persist_report)
+
+    # Notify SSE subscribers of the new report
+    await _sse.emit_report_submitted(report_id, report.suspect_account_id)
 
     return VictimReportAck(
         status="received",
@@ -636,6 +691,9 @@ async def second_chance(request: SecondChanceRequest) -> SecondChanceAck:
 
     await asyncio.to_thread(_do_persist_review)
 
+    # Notify SSE subscribers of the new review request
+    await _sse.emit_review_submitted(review_id, request.account_id)
+
     return SecondChanceAck(
         review_id=review_id,
         account_id=request.account_id,
@@ -646,6 +704,138 @@ async def second_chance(request: SecondChanceRequest) -> SecondChanceAck:
             f"A compliance officer will review it before {deadline_str}. "
             f"Reference ID: {review_id}"
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SSE Streaming endpoints
+# ---------------------------------------------------------------------------
+# Three channels, all sharing the same in-process EventBus:
+#
+#   GET /stream/alerts    – CRITICAL/HIGH account flags + ring detections
+#   GET /stream/analysis  – pipeline progress + analysis_complete events
+#   GET /stream/all       – every event on both channels
+#
+# Clients (EventSource API):
+#   const es = new EventSource("http://localhost:8000/stream/alerts");
+#   es.addEventListener("alert", e => console.log(JSON.parse(e.data)));
+#   es.addEventListener("ring_detected", e => console.log(JSON.parse(e.data)));
+#
+# Reconnect: browser EventSource automatically reconnects using Last-Event-ID.
+# Keepalive: a ": keepalive" comment is sent every 15 s (see sse.py).
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/stream/alerts",
+    summary="SSE stream – real-time CRITICAL/HIGH alerts and ring detections",
+    tags=["Streaming"],
+    response_class=StreamingResponse,
+)
+async def stream_alerts(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream for fraud alerts.
+
+    Emits ``alert`` events for every CRITICAL or HIGH risk account flagged
+    during POST /analyze, and ``ring_detected`` events for every fraud ring.
+
+    Connect with the browser EventSource API::
+
+        const es = new EventSource("/stream/alerts");
+        es.addEventListener("alert", e => {
+            const data = JSON.parse(e.data);
+            console.log(data.account_id, data.risk_tier, data.suspicion_score);
+        });
+
+    The stream stays open until the client closes it.  A ``connected`` event
+    is sent immediately on connection.  Keepalive comments are sent every 15 s.
+    """
+    async def _guarded():
+        async for frame in _sse.event_stream(_sse.CHANNEL_ALERTS):
+            if await request.is_disconnected():
+                break
+            yield frame
+
+    return StreamingResponse(
+        _guarded(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":   "no-cache",
+            "X-Accel-Buffering": "no",   # disable Nginx proxy buffering
+            "Connection":      "keep-alive",
+        },
+    )
+
+
+@app.get(
+    "/stream/analysis",
+    summary="SSE stream – live pipeline progress and analysis completion",
+    tags=["Streaming"],
+    response_class=StreamingResponse,
+)
+async def stream_analysis(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream for analysis pipeline progress.
+
+    Emits the following event types in order for each POST /analyze call:
+
+    =========  ========================================================
+    Event      Payload fields
+    =========  ========================================================
+    connected  ``channel``, ``ts``
+    analysis_started  ``filename``, ``transactions``, ``csv_hash``, ``ts``
+    analysis_progress  ``stage``, ``pct``, ``detail`` (optional), ``ts``
+    analysis_complete  ``total_accounts``, ``suspicious``, ``rings``, …
+    =========  ========================================================
+
+    Useful for showing a live progress bar on the frontend while the
+    pipeline runs (typically 200 ms – 5 s depending on CSV size).
+    """
+    async def _guarded():
+        async for frame in _sse.event_stream(_sse.CHANNEL_ANALYSIS):
+            if await request.is_disconnected():
+                break
+            yield frame
+
+    return StreamingResponse(
+        _guarded(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":   "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":      "keep-alive",
+        },
+    )
+
+
+@app.get(
+    "/stream/all",
+    summary="SSE stream – every event (alerts + analysis + reports + reviews)",
+    tags=["Streaming"],
+    response_class=StreamingResponse,
+)
+async def stream_all(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream for all event types.
+
+    Superset of /stream/alerts and /stream/analysis.  Also includes:
+
+    * ``report_submitted`` – when a victim submits POST /report
+    * ``review_submitted`` – when an account holder submits POST /second-chance
+    * ``keepalive``        – every 15 s (invisible to EventSource, proxy-friendly)
+
+    Suitable for an investigator dashboard that needs the full real-time picture.
+    """
+    async def _guarded():
+        async for frame in _sse.event_stream(_sse.CHANNEL_ALL):
+            if await request.is_disconnected():
+                break
+            yield frame
+
+    return StreamingResponse(
+        _guarded(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":   "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":      "keep-alive",
+        },
     )
 
 
