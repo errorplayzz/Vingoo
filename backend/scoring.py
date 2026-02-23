@@ -1,4 +1,4 @@
-﻿"""scoring.py – Multi-factor suspicion scoring engine (v2).
+"""scoring.py – Multi-factor suspicion scoring engine (v2).
 
 Upgrades vs v1:
 - Three independent score components: behavioral, graph, temporal
@@ -20,7 +20,6 @@ from typing import Dict, List, Optional, Set, Tuple
 import networkx as nx
 
 from models import FraudRing, SuspiciousAccount
-from utils import get_node_amounts
 
 # ---------------------------------------------------------------------------
 # Component weights (must sum = 1.0)
@@ -264,10 +263,42 @@ def compute_suspicion_scores(
     if num_nodes == 0:
         return []
 
-    #  Batch centrality 
+    # ------------------------------------------------------------------
+    # Single O(E) pre-computation pass
+    # Replaces: get_node_amounts (O(deg) × N), _compute_flow_imbalance
+    # (separate O(E)), graph_mean_amount loop (O(E)), and the per-node
+    # tx_count iteration (O(deg)) inside the main loop.
+    # ------------------------------------------------------------------
+    _node_sent:     Dict[str, float] = {n: 0.0 for n in G.nodes()}
+    _node_recv:     Dict[str, float] = {n: 0.0 for n in G.nodes()}
+    _node_tx_count: Dict[str, int]   = {n: 0   for n in G.nodes()}
+    _total_edge_amount = 0.0
+
+    for _src, _dst, _ed in G.edges(data=True):
+        _amt = _ed.get("total_amount", 0.0)
+        _node_sent[_src] += _amt
+        _node_recv[_dst] += _amt
+        _total_edge_amount += _amt
+        _n_txns = len(_ed.get("transactions", []))
+        _node_tx_count[_src] += _n_txns
+        _node_tx_count[_dst] += _n_txns
+
+    num_edges = G.number_of_edges()
+    graph_mean_amount = _total_edge_amount / num_edges if num_edges else 1.0
+
+    # Flow imbalance derived from the same pre-computed values (no extra pass)
+    _eps = 1e-9
+    flow_imbalance: Dict[str, float] = {
+        node: abs(_node_sent[node] - _node_recv[node])
+               / (_node_sent[node] + _node_recv[node] + _eps)
+        for node in G.nodes()
+    }
+
+    # ------------------------------------------------------------------
+    # Centrality (unchanged – already batch-computed)
+    # ------------------------------------------------------------------
     degree_centrality: Dict[str, float] = nx.degree_centrality(G)
 
-    # For large graphs use approximate betweenness (k=min(100, nodes))
     k_approx = min(100, num_nodes) if num_nodes > 200 else None
     betweenness: Dict[str, float] = nx.betweenness_centrality(
         G, normalized=True, weight=None, k=k_approx
@@ -277,14 +308,6 @@ def compute_suspicion_scores(
     _max_betw = max(betweenness.values(), default=1.0) or 1.0
     degree_centrality = {k: v / _max_deg  for k, v in degree_centrality.items()}
     betweenness       = {k: v / _max_betw for k, v in betweenness.items()}
-
-    flow_imbalance: Dict[str, float] = _compute_flow_imbalance(G)
-
-    #  Pre-compute graph-wide amount stats 
-    all_amounts: List[float] = []
-    for _, _, ed in G.edges(data=True):
-        all_amounts.append(ed.get("total_amount", 0.0))
-    graph_mean_amount = sum(all_amounts) / len(all_amounts) if all_amounts else 1.0
 
     results: List[SuspiciousAccount] = []
 
@@ -302,8 +325,11 @@ def compute_suspicion_scores(
 
         t_score = _compute_temporal_score(patterns)
 
-        sent, received = get_node_amounts(G, account)
-        a_score = _compute_amount_score(sent, received, patterns, graph_mean_amount)
+        # Use pre-computed values – O(1) dict lookups instead of O(deg) traversals
+        sent     = _node_sent.get(account, 0.0)
+        received = _node_recv.get(account, 0.0)
+        tx_count = _node_tx_count.get(account, 0)
+        a_score  = _compute_amount_score(sent, received, patterns, graph_mean_amount)
 
         #  Composite suspicion score 
         raw = (
@@ -343,11 +369,6 @@ def compute_suspicion_scores(
 
         explanation = _build_explanation(
             account, patterns, sub_scores, risk_tier, score, sent, received, ring_id
-        )
-
-        tx_count = sum(
-            len(ed.get("transactions", []))
-            for _, _, ed in list(G.out_edges(account, data=True)) + list(G.in_edges(account, data=True))
         )
 
         results.append(SuspiciousAccount(
@@ -437,7 +458,12 @@ def compute_ring_scores(
 # ---------------------------------------------------------------------------
 
 def _compute_flow_imbalance(G: nx.DiGraph) -> Dict[str, float]:
-    """imbalance = |sent - received| / (sent + received + eps)  [0,1]"""
+    """imbalance = |sent - received| / (sent + received + eps)  [0,1]
+
+    Kept as a public helper for callers outside compute_suspicion_scores.
+    Inside compute_suspicion_scores the result is derived from the shared
+    pre-computed _node_sent/_node_recv dicts with no extra O(E) pass.
+    """
     imbalance: Dict[str, float] = {}
     eps = 1e-9
     for node in G.nodes():
