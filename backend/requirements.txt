@@ -54,3 +54,14 @@ scikit-learn>=1.4.0
 # NumPy: feature matrix operations in ml_model.py
 # (also a transitive dep of pandas/networkx – pinned here for explicitness)
 numpy>=1.26.0
+
+# ── Security hardening ────────────────────────────────────────────────────────
+
+# JWT creation + verification (HMAC-SHA256 / RS256)
+python-jose[cryptography]>=3.3.0
+
+# bcrypt password hashing (used for admin credential store)
+passlib[bcrypt]>=1.7.4
+
+# Per-route and global rate limiting for FastAPI/Starlette
+slowapi>=0.1.9

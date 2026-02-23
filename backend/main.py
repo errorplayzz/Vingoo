@@ -52,6 +52,27 @@ from utils import build_graph, parse_csv
 import cache as _cache
 from ml_model import run_ml_layer
 import sse as _sse
+from auth import (
+    AUTH_ENABLED,
+    ADMIN_LIMIT,
+    STREAM_LIMIT,
+    UPLOAD_LIMIT,
+    WRITE_LIMIT,
+    AUTH_LIMIT,
+    TokenData,
+    TokenResponse,
+    limiter,
+    RateLimitExceeded,
+    SlowAPIMiddleware,
+    get_limit,
+    login as _auth_login,
+    refresh_access_token as _auth_refresh,
+    require_role,
+    enforce_upload_size,
+    security_headers_middleware,
+    rate_limit_exceeded_handler,
+)
+from fastapi.security import OAuth2PasswordRequestForm
 
 # ---------------------------------------------------------------------------
 # Application lifespan (replaces deprecated @app.on_event)
@@ -160,6 +181,21 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
+# Security middleware / exception handler
+# ---------------------------------------------------------------------------
+
+# Security headers on every response (CSP, HSTS, X-Frame-Options, …)
+app.middleware("http")(security_headers_middleware)
+
+# slowapi rate limiter wiring (no-ops gracefully when package is absent)
+if limiter is not None:
+    app.state.limiter = limiter
+    if RateLimitExceeded is not None:
+        app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    if SlowAPIMiddleware is not None:
+        app.add_middleware(SlowAPIMiddleware)
+
+# ---------------------------------------------------------------------------
 # In-memory state – single-process fallback
 # ---------------------------------------------------------------------------
 # These are kept as a LOCAL fallback for when Redis is unavailable.  When
@@ -179,6 +215,55 @@ _victim_reports: List[Dict[str, Any]] = []
 
 # Second-chance dispute reviews submitted via POST /second-chance  (local fallback only)
 _second_chance_reviews: List[Dict[str, Any]] = []
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints: POST /auth/token  &  POST /auth/refresh
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/auth/token",
+    response_model=TokenResponse,
+    summary="Obtain a JWT access + refresh token pair",
+    tags=["Auth"],
+)
+@get_limit(AUTH_LIMIT)
+async def auth_token(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+) -> TokenResponse:
+    """Authenticate with username + password (OAuth2 password flow) and receive
+    a short-lived access token and a long-lived refresh token.
+
+    When AUTH_ENABLED=false (development) any credentials are accepted and
+    a synthetic admin token is returned.
+    """
+    if not AUTH_ENABLED:
+        from auth import create_access_token, create_refresh_token  # local import fine here
+        return TokenResponse(
+            access_token=create_access_token("dev", ["admin", "analyst"]),
+            refresh_token=create_refresh_token("dev"),
+            expires_in=3600,
+        )
+    return await _auth_login(form_data)
+
+
+@app.post(
+    "/auth/refresh",
+    response_model=TokenResponse,
+    summary="Exchange a refresh token for a new token pair",
+    tags=["Auth"],
+)
+async def auth_refresh(
+    request: Request,
+    body: dict,
+) -> TokenResponse:
+    """Supply {\"refresh_token\": \"<token>\"} to receive new access + refresh tokens."""
+    token = body.get("refresh_token", "")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="refresh_token field is required.")
+    return await _auth_refresh(token)
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +298,11 @@ async def health_check() -> JSONResponse:
     summary="Upload transaction CSV and detect fraud patterns",
     tags=["Detection"],
 )
+@get_limit(UPLOAD_LIMIT)
 async def analyze(
+    request: Request,
     file: UploadFile = File(..., description="CSV file with transaction data"),
+    _size: None = Depends(enforce_upload_size),
 ) -> AnalysisResponse:
     """Upload a CSV, run detection pipeline, return full fraud report."""
     t_start = time.perf_counter()
@@ -509,7 +597,11 @@ async def analyze(
     tags=["Reports"],
     status_code=status.HTTP_201_CREATED,
 )
-async def submit_report(report: VictimReport) -> VictimReportAck:
+@get_limit(WRITE_LIMIT)
+async def submit_report(
+    request: Request,
+    report: VictimReport,
+) -> VictimReportAck:
     """Accept fraud report, assign a UUID, persist to DB."""
     report_id = f"RPT-{uuid.uuid4().hex[:10].upper()}"
 
@@ -639,7 +731,11 @@ async def export_latest() -> JSONResponse:
     tags=["Reviews"],
     status_code=status.HTTP_201_CREATED,
 )
-async def second_chance(request: SecondChanceRequest) -> SecondChanceAck:
+@get_limit(WRITE_LIMIT)
+async def second_chance(
+    http_request: Request,
+    request: SecondChanceRequest,
+) -> SecondChanceAck:
     """Accept a flag dispute, assign a review ID, set 24h deadline."""
     review_id = f"REV-{uuid.uuid4().hex[:10].upper()}"
     now = datetime.now(tz=timezone.utc)
@@ -915,10 +1011,13 @@ async def legal_info() -> JSONResponse:
     summary="List all stored analyses",
     tags=["Admin"],
 )
+@get_limit(ADMIN_LIMIT)
 def admin_list_analyses(
+    request: Request,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Paginated list of past analyses, newest first."""
     rows = (
@@ -952,9 +1051,12 @@ def admin_list_analyses(
     summary="Full detail for a single analysis",
     tags=["Admin"],
 )
+@get_limit(ADMIN_LIMIT)
 async def admin_get_analysis(
+    request: Request,
     analysis_id: str,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Full detail for one analysis including accounts and rings.
 
@@ -1027,10 +1129,13 @@ async def admin_get_analysis(
     summary="List all victim reports",
     tags=["Admin"],
 )
+@get_limit(ADMIN_LIMIT)
 def admin_list_reports(
+    request: Request,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Return a paginated list of victim reports (most recent first)."""
     rows = (
@@ -1069,9 +1174,12 @@ def admin_list_reports(
     tags=["Admin"],
     status_code=status.HTTP_200_OK,
 )
+@get_limit(ADMIN_LIMIT)
 def admin_approve_report(
+    request: Request,
     report_id: str,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Approve report and create a reward entry.
 
@@ -1122,9 +1230,12 @@ def admin_approve_report(
     tags=["Admin"],
     status_code=status.HTTP_200_OK,
 )
+@get_limit(ADMIN_LIMIT)
 def admin_reject_report(
+    request: Request,
     report_id: str,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Set report.status = 'rejected'."""
     report = db.query(Report).filter(Report.report_id == report_id).first()
@@ -1154,10 +1265,13 @@ def admin_reject_report(
     summary="List all second-chance review requests",
     tags=["Admin"],
 )
+@get_limit(ADMIN_LIMIT)
 def admin_list_reviews(
+    request: Request,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Return a paginated list of second-chance review requests (most recent first)."""
     rows = (
@@ -1197,9 +1311,12 @@ def admin_list_reviews(
     tags=["Admin"],
     status_code=status.HTTP_200_OK,
 )
+@get_limit(ADMIN_LIMIT)
 def admin_approve_review(
+    request: Request,
     review_id: str,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Set review_request.status = 'approved'."""
     rev = db.query(ReviewRequest).filter(ReviewRequest.review_id == review_id).first()
@@ -1230,9 +1347,12 @@ def admin_approve_review(
     tags=["Admin"],
     status_code=status.HTTP_200_OK,
 )
+@get_limit(ADMIN_LIMIT)
 def admin_reject_review(
+    request: Request,
     review_id: str,
     db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
 ) -> JSONResponse:
     """Set review_request.status = 'rejected'."""
     rev = db.query(ReviewRequest).filter(ReviewRequest.review_id == review_id).first()
