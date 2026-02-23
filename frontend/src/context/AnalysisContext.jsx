@@ -1,56 +1,95 @@
-/** context/AnalysisContext.jsx – Global state shared across all sections. */
-import { createContext, useContext, useState, useCallback, useRef } from "react";
-import { analyze, checkHealth, getAdminAnalyses, getAdminAnalysis, getAdminReports, getAdminReviews, approveReport, rejectReport, approveReview, rejectReview } from "../api/client";
+/**
+ * context/AnalysisContext.jsx – Global state for the core analysis pipeline.
+ *
+ * Performance changes vs. the original monolith:
+ *
+ *  1. Admin state REMOVED — fetchAdminData, adminAnalyses, adminReports, etc.
+ *     are now served by React Query hooks in hooks/useAdminData.js.
+ *     This eliminates the root cause of re-renders in InvestigatorDashboard
+ *     propagating into ResultsDashboard and GraphViz.
+ *
+ *  2. Split context — values are split into two independent contexts so
+ *     components can subscribe to only what they need:
+ *
+ *       useAnalysisState()   – state values (status, result, …)
+ *                              re-renders when values change
+ *       useAnalysisActions() – stable callbacks (runAnalysis, reset, …)
+ *                              NEVER triggers extra re-renders because all
+ *                              callbacks are wrapped in useCallback with
+ *                              stable deps and the context value itself is
+ *                              memoized with useMemo.
+ *       useAnalysis()        – merges both; backward-compatible with all
+ *                              existing call-sites.
+ *
+ *  3. explainCache uses useRef (no state change on cache write) — unchanged.
+ */
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+import { analyze, checkHealth } from "../api/client";
 import { generateExplanations } from "../utils/explainer";
 
 
-const AnalysisContext = createContext(null);
+/* ── Contexts ─────────────────────────────────────────────────────────────── */
 
-export function useAnalysis() {
-  const ctx = useContext(AnalysisContext);
-  if (!ctx) throw new Error("useAnalysis must be used inside AnalysisProvider");
+const _StateContext   = createContext(null);
+const _ActionsContext = createContext(null);
+
+/* ── Consumer hooks ───────────────────────────────────────────────────────── */
+
+/** Subscribe to state values only (status, result, progress, …). */
+export function useAnalysisState() {
+  const ctx = useContext(_StateContext);
+  if (!ctx) throw new Error("useAnalysisState must be used inside AnalysisProvider");
   return ctx;
 }
 
+/** Subscribe to stable callbacks only — never causes extra re-renders. */
+export function useAnalysisActions() {
+  const ctx = useContext(_ActionsContext);
+  if (!ctx) throw new Error("useAnalysisActions must be used inside AnalysisProvider");
+  return ctx;
+}
+
+/**
+ * Backward-compatible hook that merges state + actions into one object.
+ * All existing call-sites continue to work without any changes.
+ */
+export function useAnalysis() {
+  return { ...useAnalysisState(), ...useAnalysisActions() };
+}
+
+/* ── Provider ─────────────────────────────────────────────────────────────── */
 
 export function AnalysisProvider({ children }) {
-  // Upload / analysis state
-  const [status,    setStatus]    = useState("idle");  // idle|uploading|analyzing|done|error
-  const [progress,  setProgress]  = useState(0);        // 0-100
-  const [result,    setResult]    = useState(null);     // AnalysisResponse + explanations
-  const [rawResult, setRawResult] = useState(null);    // exact API response, unmutated
-  const [error,     setError]     = useState(null);    // string | null
-  const [fileName,  setFileName]  = useState(null);
-
-  // Graph highlight (ring_id → highlight its nodes in GraphViz)
-  const [highlightedRingId, setHighlightedRingId] = useState(null);
-
-  // Backend health
-  const [apiHealth, setApiHealth] = useState("unknown"); // unknown|healthy|degraded
-
-  // Investigator mode
+  // ── Core analysis state ───────────────────────────────────────────────────
+  const [status,           setStatus]           = useState("idle");   // idle|uploading|analyzing|done|error
+  const [progress,         setProgress]         = useState(0);        // 0–100
+  const [result,           setResult]           = useState(null);     // AnalysisResponse + explanations
+  const [rawResult,        setRawResult]        = useState(null);     // exact API body, unmutated
+  const [error,            setError]            = useState(null);     // string | null
+  const [fileName,         setFileName]         = useState(null);
+  const [highlightedRingId,setHighlightedRingId]= useState(null);
+  const [apiHealth,        setApiHealth]        = useState("unknown"); // unknown|healthy|degraded
   const [investigatorMode, setInvestigatorMode] = useState(false);
 
-  // Admin / investigator DB data
-  const [adminAnalyses,         setAdminAnalyses]         = useState([]);
-  const [adminSelectedAnalysis, setAdminSelectedAnalysis] = useState(null); // full detail
-  const [adminReports,          setAdminReports]          = useState([]);
-  const [adminReviews,          setAdminReviews]          = useState([]);
-  const [adminLoading,          setAdminLoading]          = useState(false);
-  const [adminError,            setAdminError]            = useState(null);
-
-  // Cache: avoid re-running explain if same result
+  // ── Ref — mutation, no re-render ──────────────────────────────────────────
   const explainCache = useRef(new Map());
 
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   const pingHealth = useCallback(async () => {
     try {
       await checkHealth();
       setApiHealth("healthy");
     } catch {
-      // Retry once after 15 s — handles Render free-tier cold start > 30 s
       try {
-        await new Promise(r => setTimeout(r, 15_000));
+        await new Promise((r) => setTimeout(r, 15_000));
         await checkHealth();
         setApiHealth("healthy");
       } catch {
@@ -58,7 +97,6 @@ export function AnalysisProvider({ children }) {
       }
     }
   }, []);
-
 
   const runAnalysis = useCallback(async (file) => {
     if (!file) return false;
@@ -68,7 +106,6 @@ export function AnalysisProvider({ children }) {
     setStatus("uploading");
     setProgress(10);
 
-    // Fake progress while waiting
     const tick = setInterval(() => {
       setProgress((p) => Math.min(p + Math.random() * 8, 88));
     }, 400);
@@ -81,28 +118,28 @@ export function AnalysisProvider({ children }) {
 
       clearInterval(tick);
       setProgress(95);
-
-      // save raw API response
       setRawResult(data);
 
-      // Attach AI explanations (rule-based, cached by file name)
       let explained;
       if (explainCache.current.has(file.name)) {
         explained = explainCache.current.get(file.name);
       } else {
         explained = generateExplanations(data);
 
-      // prefer Claude explanation over rule-based if AI layer is active
-        if (data.ai_status === "active" && Array.isArray(data.ai_explanations) && data.ai_explanations.length > 0) {
+        if (
+          data.ai_status === "active" &&
+          Array.isArray(data.ai_explanations) &&
+          data.ai_explanations.length > 0
+        ) {
           const aiMap = Object.fromEntries(
-            data.ai_explanations.map((e) => [e.account_id, e.explanation])
+            data.ai_explanations.map((e) => [e.account_id, e.explanation]),
           );
           explained = {
             ...explained,
             suspicious_accounts: explained.suspicious_accounts.map((acc) =>
               aiMap[acc.account_id]
                 ? { ...acc, explanation: aiMap[acc.account_id], ai_source: "openrouter" }
-                : acc
+                : acc,
             ),
           };
         }
@@ -134,7 +171,6 @@ export function AnalysisProvider({ children }) {
     }
   }, []);
 
-
   const reset = useCallback(() => {
     setStatus("idle");
     setProgress(0);
@@ -145,93 +181,29 @@ export function AnalysisProvider({ children }) {
     setHighlightedRingId(null);
   }, []);
 
-  const fetchAdminData = useCallback(async () => {
-    setAdminLoading(true);
-    setAdminError(null);
-    try {
-      const [analyses, reports, reviews] = await Promise.all([
-        getAdminAnalyses(),
-        getAdminReports(),
-        getAdminReviews(),
-      ]);
-      setAdminAnalyses(Array.isArray(analyses) ? analyses : []);
-      setAdminReports(Array.isArray(reports)   ? reports  : []);
-      setAdminReviews(Array.isArray(reviews)   ? reviews  : []);
-    } catch (err) {
-      setAdminError(err.detail ?? err.message ?? "Failed to load admin data.");
-    } finally {
-      setAdminLoading(false);
-    }
-  }, []);
+  // ── Memoised context values ───────────────────────────────────────────────
+  // Actions reference is stable → consumers calling useAnalysisActions() never
+  // re-render when state values change.
+  const actionsValue = useMemo(
+    () => ({ pingHealth, runAnalysis, reset, setHighlightedRingId, setInvestigatorMode }),
+    [pingHealth, runAnalysis, reset],
+  );
 
-  const fetchAdminAnalysisDetail = useCallback(async (id) => {
-    setAdminLoading(true);
-    try {
-      const detail = await getAdminAnalysis(id);
-      setAdminSelectedAnalysis(detail);
-    } catch (err) {
-      setAdminError(err.detail ?? err.message ?? "Failed to load analysis detail.");
-    } finally {
-      setAdminLoading(false);
-    }
-  }, []);
-
-  const adminApproveReport = useCallback(async (reportId) => {
-    const res = await approveReport(reportId);
-    setAdminReports((prev) =>
-      prev.map((r) => r.report_id === reportId ? { ...r, status: "approved" } : r),
-    );
-    return res;
-  }, []);
-
-  const adminRejectReport = useCallback(async (reportId) => {
-    const res = await rejectReport(reportId);
-    setAdminReports((prev) =>
-      prev.map((r) => r.report_id === reportId ? { ...r, status: "rejected" } : r),
-    );
-    return res;
-  }, []);
-
-  const adminApproveReview = useCallback(async (reviewId) => {
-    const res = await approveReview(reviewId);
-    setAdminReviews((prev) =>
-      prev.map((r) => r.review_id === reviewId ? { ...r, status: "approved" } : r),
-    );
-    return res;
-  }, []);
-
-  const adminRejectReview = useCallback(async (reviewId) => {
-    const res = await rejectReview(reviewId);
-    setAdminReviews((prev) =>
-      prev.map((r) => r.review_id === reviewId ? { ...r, status: "rejected" } : r),
-    );
-    return res;
-  }, []);
+  const stateValue = useMemo(
+    () => ({
+      status, progress, result, rawResult, error, fileName,
+      highlightedRingId, apiHealth, investigatorMode,
+    }),
+    [status, progress, result, rawResult, error, fileName, highlightedRingId, apiHealth, investigatorMode],
+  );
 
   return (
-    <AnalysisContext.Provider
-      value={{
-        // analysis
-        status, progress, result, rawResult, error, fileName,
-        // health
-        apiHealth, pingHealth,
-        // mode
-        investigatorMode, setInvestigatorMode,
-        // highlight
-        highlightedRingId, setHighlightedRingId,
-        // analysis actions
-        runAnalysis, reset,
-        // admin state
-        adminAnalyses, adminSelectedAnalysis, setAdminSelectedAnalysis,
-        adminReports, adminReviews,
-        adminLoading, adminError,
-        // admin actions
-        fetchAdminData, fetchAdminAnalysisDetail,
-        adminApproveReport, adminRejectReport,
-        adminApproveReview, adminRejectReview,
-      }}
-    >
-      {children}
-    </AnalysisContext.Provider>
+    <_ActionsContext.Provider value={actionsValue}>
+      <_StateContext.Provider value={stateValue}>
+        {children}
+      </_StateContext.Provider>
+    </_ActionsContext.Provider>
   );
 }
+
+

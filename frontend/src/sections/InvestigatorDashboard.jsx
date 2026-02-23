@@ -2,15 +2,34 @@
  * sections/InvestigatorDashboard.jsx
  * Full investigator / admin panel — rendered only when investigatorMode is ON.
  *
+ * Data layer now uses React Query (hooks/useAdminData.js) instead of the
+ * AnalysisContext monolith.  Benefits:
+ *  - Per-tab caching: switching tabs never re-fetches already-fresh data.
+ *  - Optimistic mutations: approve/reject update badges instantly.
+ *  - Isolated re-renders: a loading state in "Reports" doesn't re-render
+ *    the "Analyses" list.
+ *  - Global Refresh button invalidates all admin queries at once.
+ *
  * Tabs:
  *  1. Analyses  — DB-persisted analyses; drill into accounts + rings
  *  2. Reports   — victim reports; approve / reject → reward entry
  *  3. Reviews   — second-chance requests; approve / reject
  */
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAnalysis } from "../context/AnalysisContext";
 import { useToast } from "../context/ToastContext";
+import {
+  useAdminAnalyses,
+  useAdminAnalysisDetail,
+  useAdminReports,
+  useAdminReviews,
+  useApproveReport,
+  useRejectReport,
+  useApproveReview,
+  useRejectReview,
+  useRefreshAdmin,
+} from "../hooks/useAdminData";
 
 const EASE = [0.4, 0, 0.2, 1];
 
@@ -78,16 +97,13 @@ function RefreshBtn({ onClick, loading }) {
 /* ── Tab 1: Analyses ──────────────────────────────────────────────────────── */
 
 function AnalysesTab() {
-  const { adminAnalyses, adminSelectedAnalysis, setAdminSelectedAnalysis,
-          adminLoading, adminError, fetchAdminData, fetchAdminAnalysisDetail } = useAnalysis();
+  const [selectedId, setSelectedId] = useState(null);
+  const { data: analyses = [], isLoading, isError, error } = useAdminAnalyses();
+  const { data: detail, isFetching: detailFetching } = useAdminAnalysisDetail(selectedId);
 
   const handleRowClick = useCallback((id) => {
-    if (adminSelectedAnalysis?.id === id) {
-      setAdminSelectedAnalysis(null);
-    } else {
-      fetchAdminAnalysisDetail(id);
-    }
-  }, [adminSelectedAnalysis, setAdminSelectedAnalysis, fetchAdminAnalysisDetail]);
+    setSelectedId((prev) => (prev === id ? null : id));
+  }, []);
 
   const handleExport = useCallback((analysis) => {
     const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: "application/json" });
@@ -99,7 +115,7 @@ function AnalysesTab() {
     URL.revokeObjectURL(url);
   }, []);
 
-  if (adminLoading && !adminAnalyses.length) {
+  if (isLoading) {
     return (
       <div className="space-y-3 p-4">
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12" />)}
@@ -107,16 +123,15 @@ function AnalysesTab() {
     );
   }
 
-  if (adminError) {
+  if (isError) {
     return (
       <div className="p-6 text-center">
-        <p className="text-[13px] text-red-600">{adminError}</p>
-        <button onClick={fetchAdminData} className="mt-3 text-[12px] text-accent hover:underline">Retry</button>
+        <p className="text-[13px] text-red-600">{error?.detail ?? error?.message ?? "Failed to load."}</p>
       </div>
     );
   }
 
-  if (!adminAnalyses.length) {
+  if (!analyses.length) {
     return (
       <EmptyState
         icon="🔍"
@@ -128,7 +143,6 @@ function AnalysesTab() {
 
   return (
     <div>
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-[11px]">
           <thead>
@@ -143,8 +157,8 @@ function AnalysesTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-black/[0.04]">
-            {adminAnalyses.map((a, i) => {
-              const isSelected = adminSelectedAnalysis?.id === a.id;
+            {analyses.map((a, i) => {
+              const isSelected = selectedId === a.id;
               return (
                 <motion.tr
                   key={a.id}
@@ -168,7 +182,7 @@ function AnalysesTab() {
                   <td className="px-4 py-3 text-right font-mono text-muted">{a.processing_time}s</td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleExport(adminSelectedAnalysis?.id === a.id ? adminSelectedAnalysis : a); }}
+                      onClick={(e) => { e.stopPropagation(); handleExport(isSelected && detail ? detail : a); }}
                       className="text-[10px] font-semibold text-muted hover:text-ink px-2 py-1 rounded border border-black/[0.08] hover:border-black/[0.18] transition-all"
                       title="Download JSON"
                     >
@@ -184,7 +198,7 @@ function AnalysesTab() {
 
       {/* Drill-down detail panel */}
       <AnimatePresence>
-        {adminSelectedAnalysis && (
+        {selectedId && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -193,99 +207,103 @@ function AnalysesTab() {
             className="overflow-hidden border-t border-black/[0.06]"
           >
             <div className="p-5 bg-slate-50">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-[11px] font-bold text-ink uppercase tracking-widest">
-                  Analysis Detail — {adminSelectedAnalysis.id?.slice(0, 8)}…
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleExport(adminSelectedAnalysis)}
-                    className="text-[10px] font-semibold text-muted hover:text-ink px-2.5 py-1 rounded border border-black/[0.08] transition-all"
-                  >↓ Export JSON</button>
-                  <button
-                    onClick={() => setAdminSelectedAnalysis(null)}
-                    className="text-[10px] font-semibold text-faint hover:text-ink px-2.5 py-1 rounded border border-black/[0.08] transition-all"
-                  >✕ Close</button>
-                </div>
-              </div>
+              {detailFetching && !detail ? (
+                <div className="space-y-3">{[1,2,3].map((i) => <Skeleton key={i} className="h-10" />)}</div>
+              ) : detail ? (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-[11px] font-bold text-ink uppercase tracking-widest">
+                      Analysis Detail — {detail.id?.slice(0, 8)}…
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleExport(detail)}
+                        className="text-[10px] font-semibold text-muted hover:text-ink px-2.5 py-1 rounded border border-black/[0.08] transition-all"
+                      >↓ Export JSON</button>
+                      <button
+                        onClick={() => setSelectedId(null)}
+                        className="text-[10px] font-semibold text-faint hover:text-ink px-2.5 py-1 rounded border border-black/[0.08] transition-all"
+                      >✕ Close</button>
+                    </div>
+                  </div>
 
-              <div className="flex flex-col lg:flex-row gap-6">
-                {/* Accounts */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-semibold text-faint uppercase tracking-wider mb-3">
-                    Suspicious Accounts ({adminSelectedAnalysis.accounts?.length ?? 0})
-                  </p>
-                  {(adminSelectedAnalysis.accounts ?? []).length === 0 ? (
-                    <p className="text-[11px] text-faint italic">No suspicious accounts recorded.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {adminSelectedAnalysis.accounts.slice(0, 10).map((acc) => (
-                        <div key={acc.account_id}
-                          className="flex items-center gap-3 p-2.5 rounded-lg bg-white border border-black/[0.05]">
-                          <span className="w-8 h-8 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center text-[10px] font-black text-red-600 flex-shrink-0">
-                            {Math.round(acc.suspicion_score)}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-mono font-semibold text-ink truncate">{acc.account_id}</p>
-                            <p className="text-[10px] text-faint truncate">
-                              {(acc.detected_patterns ?? []).join(" · ") || "—"}
+                  <div className="flex flex-col lg:flex-row gap-6">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold text-faint uppercase tracking-wider mb-3">
+                        Suspicious Accounts ({detail.accounts?.length ?? 0})
+                      </p>
+                      {!(detail.accounts ?? []).length ? (
+                        <p className="text-[11px] text-faint italic">No suspicious accounts recorded.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {detail.accounts.slice(0, 10).map((acc) => (
+                            <div key={acc.account_id}
+                              className="flex items-center gap-3 p-2.5 rounded-lg bg-white border border-black/[0.05]">
+                              <span className="w-8 h-8 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center text-[10px] font-black text-red-600 flex-shrink-0">
+                                {Math.round(acc.suspicion_score)}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[11px] font-mono font-semibold text-ink truncate">{acc.account_id}</p>
+                                <p className="text-[10px] text-faint truncate">
+                                  {(acc.detected_patterns ?? []).join(" · ") || "—"}
+                                </p>
+                              </div>
+                              {acc.ring_id && (
+                                <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-accent/[0.08] text-accent border border-accent/20 flex-shrink-0">
+                                  {acc.ring_id}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                          {detail.accounts.length > 10 && (
+                            <p className="text-[10px] text-faint text-center py-1">
+                              +{detail.accounts.length - 10} more — download JSON for full list
                             </p>
-                          </div>
-                          {acc.ring_id && (
-                            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-accent/[0.08] text-accent border border-accent/20 flex-shrink-0">
-                              {acc.ring_id}
-                            </span>
                           )}
                         </div>
-                      ))}
-                      {adminSelectedAnalysis.accounts.length > 10 && (
-                        <p className="text-[10px] text-faint text-center py-1">
-                          +{adminSelectedAnalysis.accounts.length - 10} more — download JSON for full list
-                        </p>
                       )}
                     </div>
-                  )}
-                </div>
 
-                {/* Rings */}
-                <div className="lg:w-64 flex-shrink-0">
-                  <p className="text-[10px] font-semibold text-faint uppercase tracking-wider mb-3">
-                    Fraud Rings ({adminSelectedAnalysis.rings?.length ?? 0})
-                  </p>
-                  {(adminSelectedAnalysis.rings ?? []).length === 0 ? (
-                    <p className="text-[11px] text-faint italic">No rings in this analysis.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {adminSelectedAnalysis.rings.map((ring) => (
-                        <div key={ring.ring_id}
-                          className="p-3 rounded-lg bg-white border border-black/[0.05]">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10px] font-mono font-bold text-ink">{ring.ring_id}</span>
-                            <span className="text-[10px] font-bold text-red-600">
-                              {ring.risk_score?.toFixed(0)} risk
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-faint capitalize mb-1.5">
-                            {(ring.pattern_type ?? "").replace(/_/g, " ")}
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {(ring.member_accounts ?? []).slice(0, 4).map((m) => (
-                              <span key={m} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-muted">
-                                {m}
-                              </span>
-                            ))}
-                            {(ring.member_accounts ?? []).length > 4 && (
-                              <span className="text-[9px] px-1.5 py-0.5 text-faint">
-                                +{ring.member_accounts.length - 4}
-                              </span>
-                            )}
-                          </div>
+                    <div className="lg:w-64 flex-shrink-0">
+                      <p className="text-[10px] font-semibold text-faint uppercase tracking-wider mb-3">
+                        Fraud Rings ({detail.rings?.length ?? 0})
+                      </p>
+                      {!(detail.rings ?? []).length ? (
+                        <p className="text-[11px] text-faint italic">No rings in this analysis.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {detail.rings.map((ring) => (
+                            <div key={ring.ring_id}
+                              className="p-3 rounded-lg bg-white border border-black/[0.05]">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] font-mono font-bold text-ink">{ring.ring_id}</span>
+                                <span className="text-[10px] font-bold text-red-600">
+                                  {ring.risk_score?.toFixed(0)} risk
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-faint capitalize mb-1.5">
+                                {(ring.pattern_type ?? "").replace(/_/g, " ")}
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {(ring.member_accounts ?? []).slice(0, 4).map((m) => (
+                                  <span key={m} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-muted">
+                                    {m}
+                                  </span>
+                                ))}
+                                {(ring.member_accounts ?? []).length > 4 && (
+                                  <span className="text-[9px] px-1.5 py-0.5 text-faint">
+                                    +{ring.member_accounts.length - 4}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              ) : null}
             </div>
           </motion.div>
         )}
@@ -294,44 +312,42 @@ function AnalysesTab() {
   );
 }
 
+
 /* ── Tab 2: Reports ───────────────────────────────────────────────────────── */
 
 function ReportsTab() {
-  const { adminReports, adminLoading, adminError, fetchAdminData,
-          adminApproveReport, adminRejectReport } = useAnalysis();
+  const { data: reports = [], isLoading, isError, error } = useAdminReports();
+  const approveMut = useApproveReport();
+  const rejectMut  = useRejectReport();
   const toast = useToast();
-  const [busy, setBusy] = useState({});
 
   const handle = useCallback(async (reportId, action) => {
-    setBusy((b) => ({ ...b, [reportId]: action }));
     try {
       if (action === "approve") {
-        await adminApproveReport(reportId);
+        await approveMut.mutateAsync(reportId);
         toast.success(`Report ${reportId} approved — reward entry created.`, "Approved");
       } else {
-        await adminRejectReport(reportId);
+        await rejectMut.mutateAsync(reportId);
         toast.info(`Report ${reportId} rejected.`, "Rejected");
       }
     } catch (err) {
-      toast.error(err.detail ?? err.message ?? "Action failed.", "Error");
-    } finally {
-      setBusy((b) => ({ ...b, [reportId]: null }));
+      toast.error(err?.detail ?? err?.message ?? "Action failed.", "Error");
     }
-  }, [adminApproveReport, adminRejectReport, toast]);
+  }, [approveMut, rejectMut, toast]);
 
-  if (adminLoading && !adminReports.length) {
+  if (isLoading) {
     return <div className="space-y-3 p-4">{[1,2,3].map((i) => <Skeleton key={i} className="h-14" />)}</div>;
   }
-  if (adminError) {
-    return <div className="p-6 text-center"><p className="text-[13px] text-red-600">{adminError}</p></div>;
+  if (isError) {
+    return <div className="p-6 text-center"><p className="text-[13px] text-red-600">{error?.detail ?? error?.message ?? "Failed to load."}</p></div>;
   }
-  if (!adminReports.length) {
+  if (!reports.length) {
     return <EmptyState icon="📋" title="No reports submitted" sub="Victim fraud reports submitted via the Citizen Protection section will appear here." />;
   }
 
   return (
     <div className="divide-y divide-black/[0.04]">
-      {adminReports.map((r, i) => (
+      {reports.map((r, i) => (
         <motion.div
           key={r.id}
           className="px-5 py-4 hover:bg-slate-50 transition-colors"
@@ -363,13 +379,13 @@ function ReportsTab() {
                 <ActionBtn
                   label="Approve"
                   variant="approve"
-                  loading={busy[r.report_id] === "approve"}
+                  loading={approveMut.isPending && approveMut.variables === r.report_id}
                   onClick={() => handle(r.report_id, "approve")}
                 />
                 <ActionBtn
                   label="Reject"
                   variant="reject"
-                  loading={busy[r.report_id] === "reject"}
+                  loading={rejectMut.isPending && rejectMut.variables === r.report_id}
                   onClick={() => handle(r.report_id, "reject")}
                 />
               </div>
@@ -389,41 +405,38 @@ function ReportsTab() {
 /* ── Tab 3: Reviews ───────────────────────────────────────────────────────── */
 
 function ReviewsTab() {
-  const { adminReviews, adminLoading, adminError,
-          adminApproveReview, adminRejectReview } = useAnalysis();
+  const { data: reviews = [], isLoading, isError, error } = useAdminReviews();
+  const approveMut = useApproveReview();
+  const rejectMut  = useRejectReview();
   const toast = useToast();
-  const [busy, setBusy] = useState({});
 
   const handle = useCallback(async (reviewId, action) => {
-    setBusy((b) => ({ ...b, [reviewId]: action }));
     try {
       if (action === "approve") {
-        await adminApproveReview(reviewId);
+        await approveMut.mutateAsync(reviewId);
         toast.success(`Review ${reviewId} approved — account dispute resolved.`, "Approved");
       } else {
-        await adminRejectReview(reviewId);
+        await rejectMut.mutateAsync(reviewId);
         toast.info(`Review ${reviewId} rejected.`, "Rejected");
       }
     } catch (err) {
-      toast.error(err.detail ?? err.message ?? "Action failed.", "Error");
-    } finally {
-      setBusy((b) => ({ ...b, [reviewId]: null }));
+      toast.error(err?.detail ?? err?.message ?? "Action failed.", "Error");
     }
-  }, [adminApproveReview, adminRejectReview, toast]);
+  }, [approveMut, rejectMut, toast]);
 
-  if (adminLoading && !adminReviews.length) {
+  if (isLoading) {
     return <div className="space-y-3 p-4">{[1,2,3].map((i) => <Skeleton key={i} className="h-14" />)}</div>;
   }
-  if (adminError) {
-    return <div className="p-6 text-center"><p className="text-[13px] text-red-600">{adminError}</p></div>;
+  if (isError) {
+    return <div className="p-6 text-center"><p className="text-[13px] text-red-600">{error?.detail ?? error?.message ?? "Failed to load."}</p></div>;
   }
-  if (!adminReviews.length) {
+  if (!reviews.length) {
     return <EmptyState icon="⚖️" title="No review requests" sub="Second-chance dispute requests submitted via the Citizen Protection section will appear here." />;
   }
 
   return (
     <div className="divide-y divide-black/[0.04]">
-      {adminReviews.map((r, i) => (
+      {reviews.map((r, i) => (
         <motion.div
           key={r.id}
           className="px-5 py-4 hover:bg-slate-50 transition-colors"
@@ -455,13 +468,13 @@ function ReviewsTab() {
                 <ActionBtn
                   label="Approve"
                   variant="approve"
-                  loading={busy[r.review_id] === "approve"}
+                  loading={approveMut.isPending && approveMut.variables === r.review_id}
                   onClick={() => handle(r.review_id, "approve")}
                 />
                 <ActionBtn
                   label="Reject"
                   variant="reject"
-                  loading={busy[r.review_id] === "reject"}
+                  loading={rejectMut.isPending && rejectMut.variables === r.review_id}
                   onClick={() => handle(r.review_id, "reject")}
                 />
               </div>
@@ -475,26 +488,34 @@ function ReviewsTab() {
 
 /* ── Main Dashboard ───────────────────────────────────────────────────────── */
 
+// Tab badge counts are derived from React Query data inside the component,
+// not passed through context, so they stay in sync with optimistic updates.
 const TABS = [
-  { id: "analyses", label: "Analyses",        badge: (ctx) => ctx.adminAnalyses.length },
-  { id: "reports",  label: "Victim Reports",   badge: (ctx) => ctx.adminReports.filter((r) => r.status === "received").length },
-  { id: "reviews",  label: "Second-Chance",    badge: (ctx) => ctx.adminReviews.filter((r) => r.status === "pending").length  },
+  { id: "analyses", label: "Analyses"      },
+  { id: "reports",  label: "Victim Reports" },
+  { id: "reviews",  label: "Second-Chance"  },
 ];
 
 export default function InvestigatorDashboard() {
-  const ctx = useAnalysis();
-  const { investigatorMode, fetchAdminData, adminLoading,
-          adminAnalyses, adminReports, adminReviews } = ctx;
+  const { investigatorMode } = useAnalysis();
   const [tab, setTab] = useState("analyses");
+  const refresh = useRefreshAdmin();
 
-  // Fetch data whenever investigator mode is activated
-  useEffect(() => {
-    if (investigatorMode) {
-      fetchAdminData();
-    }
-  }, [investigatorMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fetch all admin lists as soon as the panel becomes visible.
+  // React Query deduplicates concurrent requests automatically.
+  const { data: analyses = [], isFetching: fetchingAnalyses } = useAdminAnalyses(investigatorMode);
+  const { data: reports  = [], isFetching: fetchingReports  } = useAdminReports(investigatorMode);
+  const { data: reviews  = [], isFetching: fetchingReviews  } = useAdminReviews(investigatorMode);
+
+  const isRefreshing = fetchingAnalyses || fetchingReports || fetchingReviews;
 
   if (!investigatorMode) return null;
+
+  const badgeMap = {
+    analyses: analyses.length,
+    reports:  reports.filter((r) => r.status === "received").length,
+    reviews:  reviews.filter((r) => r.status === "pending").length,
+  };
 
   return (
     <AnimatePresence>
@@ -525,16 +546,17 @@ export default function InvestigatorDashboard() {
                 View all persisted analyses, manage victim reports and second-chance dispute reviews.
               </p>
             </div>
-            <RefreshBtn onClick={fetchAdminData} loading={adminLoading} />
+            {/* Refresh invalidates the entire ["admin"] query namespace */}
+            <RefreshBtn onClick={refresh} loading={isRefreshing} />
           </div>
 
           {/* Stats row */}
           <div className="flex flex-wrap gap-3 mb-8">
             {[
-              { label: "Total Analyses",  value: adminAnalyses.length, icon: "🔍" },
-              { label: "Open Reports",    value: adminReports.filter((r) => r.status === "received").length, icon: "📋" },
-              { label: "Pending Reviews", value: adminReviews.filter((r) => r.status === "pending").length,  icon: "⚖️" },
-              { label: "Approved Reports",value: adminReports.filter((r) => r.status === "approved").length, icon: "✅" },
+              { label: "Total Analyses",   value: analyses.length,                                        icon: "🔍" },
+              { label: "Open Reports",     value: reports.filter((r) => r.status === "received").length,  icon: "📋" },
+              { label: "Pending Reviews",  value: reviews.filter((r) => r.status === "pending").length,   icon: "⚖️" },
+              { label: "Approved Reports", value: reports.filter((r) => r.status === "approved").length,  icon: "✅" },
             ].map((s, i) => (
               <motion.div
                 key={s.label}
@@ -562,7 +584,7 @@ export default function InvestigatorDashboard() {
             {/* Tabs */}
             <div className="flex border-b border-black/[0.06] overflow-x-auto">
               {TABS.map((t) => {
-                const count = t.badge(ctx);
+                const count = badgeMap[t.id] ?? 0;
                 return (
                   <button
                     key={t.id}
@@ -605,3 +627,4 @@ export default function InvestigatorDashboard() {
     </AnimatePresence>
   );
 }
+
