@@ -220,7 +220,11 @@ function adminDetailToAnalysis(detail) {
 function InvestigationWorkspace({ analysisId }) {
   // Phase engine: tracks investigation progress for ambient effects
   const { phase, advancePhase } = useInvestigationPhase();
-
+  // Apply investigation body mode — signals darker tone to CSS
+  useEffect(() => {
+    document.body.setAttribute('data-mode', 'investigation');
+    return () => document.body.removeAttribute('data-mode');
+  }, []);
   // Once a threat is confirmed, advance to INVESTIGATION_READY after a beat
   useEffect(() => {
     if (isPhaseAtLeast(phase, PHASE.THREAT_IDENTIFIED)) {
@@ -232,7 +236,7 @@ function InvestigationWorkspace({ analysisId }) {
   const showTakeover = isPhaseAtLeast(phase, PHASE.INVESTIGATION_READY);
 
   return (
-    <div className="bg-white font-sans">
+    <div className="bg-[#070C18] font-sans investigation-root">
       <Navbar />
 
       {/* Workspace header bar */}

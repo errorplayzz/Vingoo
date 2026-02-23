@@ -3,6 +3,7 @@ import { Link }                from 'react-router-dom';
 import { motion, AnimatePresence } from "framer-motion";
 import StatusBadge from './StatusBadge';
 import { useAuth } from '../context/AuthContext';
+import { useAnalysisState } from '../context/AnalysisContext';
 
 const links = [
   { label: "How It Works", href: "#how" },
@@ -16,6 +17,39 @@ export default function Navbar() {
   const [scrolled,     setScrolled]     = useState(false);
   const [menuOpen,     setMenuOpen]     = useState(false);
   const { user, isAuthenticated, logout } = useAuth();
+  const { status: analysisStatus } = useAnalysisState();
+
+  // ── Live clock ──────────────────────────────────────────────────────────
+  const [clock, setClock] = useState(() => {
+    const d = new Date();
+    return d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' }) + ' UTC';
+  });
+  useEffect(() => {
+    const t = setInterval(() => {
+      const d = new Date();
+      setClock(d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' }) + ' UTC');
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ── System status derived from analysis state ────────────────────────────
+  const sysStatus = analysisStatus === 'uploading' || analysisStatus === 'analyzing'
+    ? 'ANALYZING'
+    : analysisStatus === 'error'
+    ? 'ALERT'
+    : 'ONLINE';
+
+  const statusStyle = sysStatus === 'ANALYZING'
+    ? 'border-amber-400/40 text-amber-400 bg-amber-400/[0.07]'
+    : sysStatus === 'ALERT'
+    ? 'border-red-500/40 text-red-400 bg-red-500/[0.07]'
+    : 'border-green-400/35 text-green-400 bg-green-400/[0.06]';
+
+  const statusDot = sysStatus === 'ANALYZING'
+    ? 'bg-amber-400 animate-pulse'
+    : sysStatus === 'ALERT'
+    ? 'bg-red-500 animate-pulse'
+    : 'bg-green-400';
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -74,6 +108,25 @@ export default function Navbar() {
 
           {/* CTA + auth badges */}
           <div className="hidden md:flex items-center gap-3">
+            {/* ── Command-center status cluster ─────────────────────── */}
+            <div className="flex items-center gap-2">
+              {/* System status pill */}
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[9.5px] font-mono font-semibold uppercase tracking-widest ${statusStyle}`}>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
+                {sysStatus}
+              </div>
+              {/* Live clock */}
+              <span
+                className={`text-[9.5px] font-mono tabular-nums tracking-wider select-none ${
+                  scrolled ? 'text-slate-400' : 'text-white/40'
+                }`}
+              >
+                {clock}
+              </span>
+            </div>
+
+            {/* visual separator */}
+            <div className={`w-px h-4 ${scrolled ? 'bg-black/10' : 'bg-white/15'}`} />
             <StatusBadge />
 
             {/* ── Auth section ─────────────────────────────────────── */}
@@ -89,6 +142,7 @@ export default function Navbar() {
                   }`}
                   title="Open investigator console"
                 >
+                  <span className="text-[8px] font-mono opacity-55 tracking-widest mr-0.5">ANALYST</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                   {user?.username ?? 'Investigator'}
                 </Link>
@@ -129,6 +183,15 @@ export default function Navbar() {
             >
               Try Detection
             </motion.a>
+          </div>
+
+          {/* ── Data-stream scan line ─────────────────────────────────── */}
+          <div className="absolute bottom-0 left-0 right-0 h-px overflow-hidden pointer-events-none">
+            <motion.div
+              className="absolute inset-y-0 w-56 bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+              animate={{ left: ['-15%', '115%'] }}
+              transition={{ duration: 5, ease: 'linear', repeat: Infinity, repeatDelay: 3 }}
+            />
           </div>
 
           {/* Hamburger */}

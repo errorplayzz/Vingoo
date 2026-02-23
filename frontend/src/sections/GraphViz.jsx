@@ -262,6 +262,19 @@ const D3Graph = memo(function D3Graph({
     redComp.append("feMergeNode").attr("in","blur");
     redComp.append("feMergeNode").attr("in","SourceGraphic");
 
+    /* hover-state intensified glow filters — used on mouseenter */
+    const blueHover = defs.append("filter").attr("id","glow-blue-hover").attr("x","-90%").attr("y","-90%").attr("width","280%").attr("height","280%");
+    blueHover.append("feGaussianBlur").attr("stdDeviation","10").attr("result","blur");
+    const bhComp = blueHover.append("feMerge");
+    bhComp.append("feMergeNode").attr("in","blur");
+    bhComp.append("feMergeNode").attr("in","SourceGraphic");
+
+    const redHover = defs.append("filter").attr("id","glow-red-hover").attr("x","-100%").attr("y","-100%").attr("width","300%").attr("height","300%");
+    redHover.append("feGaussianBlur").attr("stdDeviation","14").attr("result","blur");
+    const rhComp = redHover.append("feMerge");
+    rhComp.append("feMergeNode").attr("in","blur");
+    rhComp.append("feMergeNode").attr("in","SourceGraphic");
+
     /* arrowhead markers per colour */
     const mkMarker = (id, color) => {
       defs.append("marker")
@@ -398,6 +411,29 @@ const D3Graph = memo(function D3Graph({
         .attr("stroke-width","1.6")
         .attr("opacity",     "0.45");
 
+    /* risk pulse ring — animates for HIGH-risk nodes (score > 80) */
+    nodeSel.filter((d) => d.type === "suspicious" && (d.score ?? 0) > 80)
+      .append("circle")
+        .attr("class",        "risk-pulse-ring")
+        .attr("r",            (d) => d.r + 4)
+        .attr("fill",         "none")
+        .attr("stroke",       (d) => (d.score ?? 0) > 90 ? CLR.high : "#F59E0B")
+        .attr("stroke-width", "1.4")
+        .attr("opacity",      0)
+        .each(function(d) {
+          const el = d3.select(this);
+          const r0 = d.r + 4;
+          const r1 = d.r + 18;
+          const clr = (d.score ?? 0) > 90 ? CLR.high : "#F59E0B";
+          function beat() {
+            el.attr("r", r0).attr("opacity", 0.55)
+              .transition().duration(1700).ease(d3.easeExpOut)
+              .attr("r", r1).attr("opacity", 0)
+              .on("end", beat);
+          }
+          setTimeout(beat, Math.random() * 600);
+        });
+
     /* primary label — short name; full id at zoom≥1.2; hidden below zoom 1.0 */
     nodeSel.append("text")
       .attr("class",      "t-lbl")
@@ -434,16 +470,31 @@ const D3Graph = memo(function D3Graph({
     nodeSel
       .on("mouseenter", function(event, d) {
         if (!isolatedRef.current) {
+          const hR = (d._baseR ?? d.r) + 5;
+          const hFilter = d.type === "suspicious" && d.score > 85
+            ? "url(#glow-red-hover)"
+            : d.type === "suspicious"
+            ? "url(#glow-blue-hover)"
+            : "url(#glow-blue)";
           d3.select(this).select("circle.main-circle")
-            .transition().duration(140)
-            .attr("r", (d._baseR ?? d.r) + 4);
+            .transition().duration(150)
+            .attr("r",            hR)
+            .attr("stroke-width", d.type === "suspicious" ? 3.2 : 2.2)
+            .attr("filter",       hFilter);
         }
         onNodeHover({ ...d, _el: this });
       })
       .on("mouseleave", function(_event, d) {
+        const origFilter = d.type === "suspicious" && d.score > 85
+          ? "url(#glow-red)"
+          : d.type === "suspicious"
+          ? "url(#glow-blue)"
+          : null;
         d3.select(this).select("circle.main-circle")
-          .transition().duration(140)
-          .attr("r", d._baseR ?? d.r);
+          .transition().duration(200)
+          .attr("r",            d._baseR ?? d.r)
+          .attr("stroke-width", d.type === "suspicious" ? 2.2 : 1.6)
+          .attr("filter",       origFilter);
         onNodeHover(null);
       });
 
@@ -645,6 +696,29 @@ const D3Graph = memo(function D3Graph({
           i * 38 + 640,
         );
       });
+
+      // ─ Auto-center camera on highest-risk suspicious node ───────────────
+      // Fires once after the staggered fade-in completes.
+      // Threshold: score > 65 so demo data with low scores is skipped.
+      const topNode = simNodes
+        .filter((n) => n.type === 'suspicious' && (n.score ?? 0) > 65)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
+
+      if (topNode && zoomBehaviorRef.current) {
+        const cameraDelay = simNodes.length * 55 + 900;
+        setTimeout(() => {
+          const cx = svgRef.current?.clientWidth  / 2 || 390;
+          const cy = svgRef.current?.clientHeight / 2 || 250;
+          const k  = 1.40;
+          const tx = cx - (topNode.x || 0) * k;
+          const ty = cy - (topNode.y || 0) * k;
+          const t  = d3.zoomIdentity.translate(tx, ty).scale(k);
+          svg.transition()
+            .duration(1400)
+            .ease(d3.easeCubicInOut)
+            .call(zoomBehaviorRef.current.transform, t);
+        }, cameraDelay);
+      }
     });
 
     /*  Animated dash-offset (cycle + smurf)  */

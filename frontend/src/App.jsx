@@ -12,6 +12,7 @@ import HowItWorks          from './sections/HowItWorks';
 import UploadAnalysis      from './sections/UploadAnalysis';
 import ProtectPage         from './sections/ProtectPage';
 import Footer              from './sections/Footer';
+import SystemAmbientLayer  from './ui/SystemAmbientLayer';
 
 // ── Lazy-loaded sections ─────────────────────────────────────────────────────
 // These are below-the-fold or only conditionally rendered.  Each gets its own
@@ -92,6 +93,8 @@ function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+        {/* Global ambient layer — renders behind all content, no interaction cost */}
+        <SystemAmbientLayer />
         <AnalysisProvider>
           {/* Scroll to top whenever the route pathname changes */}
           <ScrollToTop />

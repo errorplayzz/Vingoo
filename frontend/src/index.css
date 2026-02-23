@@ -219,4 +219,60 @@ body {
   box-shadow: 0 12px 40px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06);
 }
 
+/* ─── Investigation mode ─────────────────────────────────────── */
+/*  Applied when body[data-mode="investigation"] is set by       */
+/*  InvestigationPage on mount / removed on unmount.             */
+
+body[data-mode="investigation"] {
+  background: #060C1A;
+  color-scheme: dark;
+}
+
+/* Scrollbar */
+body[data-mode="investigation"] ::-webkit-scrollbar-track  { background: #0D1320; }
+body[data-mode="investigation"] ::-webkit-scrollbar-thumb  { background: #1E2A40; }
+body[data-mode="investigation"] ::-webkit-scrollbar-thumb:hover { background: #2A3C5A; }
+
+/* Override the white root container inside InvestigationWorkspace */
+body[data-mode="investigation"] .investigation-root {
+  background: #070C18;
+  min-height: 100vh;
+}
+
+/* Reduced whitespace: tighten container padding in investigation mode */
+body[data-mode="investigation"] .container-wide {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+@media (min-width: 768px) {
+  body[data-mode="investigation"] .container-wide {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* Focused depth vignette for investigation pages */
+body[data-mode="investigation"]::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%,   rgba(29,78,216,0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 45%,     rgba(0,0,0,0.18) 100%);
+}
+
+/* ─── D3 risk pulse ring animation ──────────────────────────── */
+/*  Used on HIGH-risk graph nodes — the pulse ring is a D3-      */
+/*  managed SVG circle driven by JS animation loop (no CSS       */
+/*  dependency needed), but this class documents intent.         */
+.node-risk-pulse-css {
+  animation: node-risk-pulse 1.8s ease-out infinite;
+}
+@keyframes node-risk-pulse {
+  0%   { opacity: 0.65; }
+  100% { opacity: 0;    }
+}
+
 /* end of design system */
