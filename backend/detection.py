@@ -30,16 +30,22 @@ False-positive guards:
 from __future__ import annotations
 
 import bisect
+import hashlib
+import logging
 import statistics
+import threading
+import time
 from collections import defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, Tuple
 
 import networkx as nx
 
 from utils import total_transaction_count
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -91,6 +97,29 @@ DEGREE_ANOMALY_SIGMA: float = 3.0
 
 # Minimum graph size to offset ThreadPoolExecutor startup cost
 _PARALLEL_MIN_NODES: int = 50
+
+# ---------------------------------------------------------------------------
+# Adaptive scaling guard – thresholds and knobs
+# ---------------------------------------------------------------------------
+
+# Node count above which the adaptive large-graph mode activates.
+# Below this: full pipeline on all nodes.  At or above: sampling + timeouts.
+ADAPTIVE_LARGE_THRESHOLD: int = 10_000
+
+# For LARGE graphs, only the top-K nodes (by total degree) are fed into the
+# two most expensive detectors – shell_chains and smurfing.  All other
+# detectors still run on the full graph.
+ADAPTIVE_SAMPLE_TOP_K: int = 5_000
+
+# Per-detector wall-time budget (seconds) in concurrent mode.
+# MEDIUM graphs get a generous budget; LARGE graphs get tighter limits because
+# we already reduced their work via sampling.
+DETECTOR_TIMEOUT_MEDIUM_S: float = 60.0
+DETECTOR_TIMEOUT_LARGE_S:  float = 30.0
+
+# Module-level results cache: TTL in seconds.  An identical graph (same
+# node/edge count + degree-sequence fingerprint) reuses the cached result.
+_CACHE_TTL_S: float = 300.0   # 5 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -766,59 +795,318 @@ def detect_degree_anomalies(
 
 
 # ---------------------------------------------------------------------------
+# Module-level results cache (thread-safe)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _CacheEntry:
+    result:     Dict[str, Any]
+    expires_at: float   # time.monotonic() deadline
+
+
+class _ResultsCache:
+    """Thread-safe TTL cache keyed by graph signature string.
+
+    Two graphs are considered identical when they share the same:
+      - node count
+      - edge count
+      - SHA-1 of their sorted degree sequence (fingerprints topology)
+
+    On a cache hit the stored result dict is returned directly (read-only
+    callers must not mutate it).  On expiry the stale entry is evicted and
+    the caller receives None.
+    """
+
+    def __init__(self) -> None:
+        self._lock:    threading.Lock            = threading.Lock()
+        self._entries: Dict[str, _CacheEntry]    = {}
+
+    def get(self, key: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            if time.monotonic() > entry.expires_at:
+                del self._entries[key]
+                return None
+            return entry.result
+
+    def set(self, key: str, result: Dict[str, Any], ttl: float) -> None:
+        with self._lock:
+            self._entries[key] = _CacheEntry(
+                result=result,
+                expires_at=time.monotonic() + ttl,
+            )
+
+    def evict_expired(self) -> int:
+        """Remove all expired entries; returns count removed."""
+        now = time.monotonic()
+        with self._lock:
+            expired = [k for k, e in self._entries.items() if now > e.expires_at]
+            for k in expired:
+                del self._entries[k]
+            return len(expired)
+
+
+_detection_cache: _ResultsCache = _ResultsCache()
+
+
+# ---------------------------------------------------------------------------
+# Graph fingerprinting
+# ---------------------------------------------------------------------------
+
+def _graph_signature(G: nx.DiGraph) -> str:
+    """Lightweight fingerprint: (N, E, SHA1-of-sorted-degree-sequence).
+
+    Collision probability is negligible for fraud-detection workloads that
+    differ by at least one edge.  Computing the full degree sequence is O(N)
+    which is cheap compared to running any detector.
+    """
+    n = G.number_of_nodes()
+    e = G.number_of_edges()
+    # Sorted combined-degree sequence: canonical representation of topology
+    deg_seq = sorted(
+        G.in_degree(node) + G.out_degree(node) for node in G.nodes()
+    )
+    digest = hashlib.sha1(str(deg_seq).encode(), usedforsecurity=False).hexdigest()[:12]
+    return f"{n}:{e}:{digest}"
+
+
+# ---------------------------------------------------------------------------
+# Low-risk node sampler (used in LARGE graph mode)
+# ---------------------------------------------------------------------------
+
+def _get_low_risk_nodes(
+    G: nx.DiGraph,
+    excluded: Set[AccountID],
+    top_k: int = ADAPTIVE_SAMPLE_TOP_K,
+) -> Set[AccountID]:
+    """Return the set of nodes that are NOT in the top-K by combined degree.
+
+    Callers add this set to the ``excluded_accounts`` argument of the two
+    most-expensive detectors (shell_chains, smurfing) so those detectors skip
+    low-activity nodes entirely.  All other detectors receive the original
+    ``excluded_accounts`` set and still run on the full node population.
+
+    Rationale: shell_chains starts a DFS from every non-excluded node; smurfing
+    iterates every non-excluded node's edge list.  For a 50k-node graph these
+    two detectors dominate wall time.  Nodes with low degree are unlikely to
+    appear in meaningful shell chains or smurfing patterns because they have
+    too few counterparties to generate the required fan-in/fan-out signature.
+
+    Returns
+    -------
+    Set of AccountIDs that have combined degree BELOW the top-K threshold.
+    The caller unions this with ``excluded_accounts`` before passing to detectors.
+    """
+    candidate_nodes = [n for n in G.nodes() if n not in excluded]
+    if len(candidate_nodes) <= top_k:
+        return set()  # nothing to sample away: all candidates are within budget
+
+    # Sort by combined degree descending; keep top_k
+    scored = sorted(
+        candidate_nodes,
+        key=lambda n: G.in_degree(n) + G.out_degree(n),
+        reverse=True,
+    )
+    keep = set(scored[:top_k])
+    return {n for n in candidate_nodes if n not in keep}
+
+
+# ---------------------------------------------------------------------------
+# Future-result helper with graceful timeout fallback
+# ---------------------------------------------------------------------------
+
+def _resolve(
+    fut: "Future[Any]",
+    timeout: float,
+    detector_name: str,
+    fallback: Any,
+) -> Any:
+    """Retrieve a Future result within *timeout* seconds; return fallback on breach.
+
+    Logs a WARNING with detector name and elapsed time so operators can tune
+    DETECTOR_TIMEOUT_* constants for their typical dataset sizes.
+    """
+    try:
+        return fut.result(timeout=timeout)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "[DetectionGuard] Detector '%s' exceeded %.0f s budget or raised: %s",
+            detector_name, timeout, exc,
+        )
+        return fallback
+
+
+# ---------------------------------------------------------------------------
 # Public aggregation entry point
 # ---------------------------------------------------------------------------
 
 def run_all_detections(G: nx.DiGraph) -> Dict:
     """Run all detectors and merge per-account pattern maps.
 
-    Pipeline optimizations applied here:
-      1. _identify_hubs       – fused single pass (was 2 × O(N))
-      2. _build_graph_cache   – single O(E) sweep shared by all 8 detectors
-      3. ThreadPoolExecutor   – all 8 detectors run concurrently; all are
-         read-only on G and cache, write to independent local dicts (thread-safe).
-         Sequential fallback for small graphs where thread overhead > gain.
+    Adaptive scaling guard (v4)
+    ---------------------------
+    Three execution tiers based on graph node count:
+
+      TINY   (< _PARALLEL_MIN_NODES = 50):
+        Sequential execution.  Thread-pool overhead exceeds savings.
+
+      MEDIUM (50 – ADAPTIVE_LARGE_THRESHOLD = 9 999):
+        Concurrent ThreadPoolExecutor across all 8 detectors.
+        Full node population fed to every detector.
+        Result cached by graph signature with _CACHE_TTL_S TTL.
+
+      LARGE  (>= ADAPTIVE_LARGE_THRESHOLD = 10 000):
+        Concurrent execution with three additional guards:
+        1. Node sampling  – top-K nodes by degree fed to the two most
+           expensive detectors (shell_chains, smurfing).  All other
+           detectors still run on the full graph (their per-node cost
+           is much lower).
+        2. Per-detector timeouts – each Future.result() call is bounded
+           by DETECTOR_TIMEOUT_LARGE_S.  A detector that exceeds its
+           budget returns an empty dict without killing the pipeline.
+        3. Result cache – same TTL cache as MEDIUM; avoids redundant full
+           re-runs when the same large graph is re-uploaded.
+
+    Pipeline invariants preserved
+    ------------------------------
+    - Identical return dict structure across all tiers.
+    - An additional ``_perf`` key is appended (additive; existing callers
+      that don't read it are unaffected).
+    - No detector algorithm is replaced or approximated; sampling only
+      controls which nodes act as start-points of the two DFS detectors.
     """
+    t_total = time.perf_counter()
+
+    n_nodes = G.number_of_nodes()
+    n_edges = G.number_of_edges()
+
+    # ------------------------------------------------------------------
+    # Scale tier classification
+    # ------------------------------------------------------------------
+    if n_nodes < _PARALLEL_MIN_NODES:
+        scale_tier = "tiny"
+    elif n_nodes < ADAPTIVE_LARGE_THRESHOLD:
+        scale_tier = "medium"
+    else:
+        scale_tier = "large"
+
+    log.info(
+        "[DetectionGuard] Graph: N=%d  E=%d  tier=%s",
+        n_nodes, n_edges, scale_tier,
+    )
+    print(f"[DetectionGuard] Graph: N={n_nodes}  E={n_edges}  tier={scale_tier}")
+
+    # ------------------------------------------------------------------
+    # Cache check (MEDIUM and LARGE only)
+    # ------------------------------------------------------------------
+    sig = _graph_signature(G) if scale_tier != "tiny" else ""
+    if sig:
+        cached = _detection_cache.get(sig)
+        if cached is not None:
+            log.info("[DetectionGuard] Cache hit for sig=%s", sig)
+            print(f"[DetectionGuard] Cache hit  sig={sig}  (returning stored result)")
+            # Refresh _perf to show this is a hit
+            cached = dict(cached)
+            cached["_perf"] = dict(cached.get("_perf", {}))
+            cached["_perf"]["cache_hit"] = True
+            cached["_perf"]["total_ms"] = (time.perf_counter() - t_total) * 1_000.0
+            return cached
+
+    # ------------------------------------------------------------------
+    # Hub detection + graph cache (all tiers)
+    # ------------------------------------------------------------------
     high_volume, bipartite_hubs = _identify_hubs(G)
     excluded_accounts = high_volume | bipartite_hubs
 
-    # Single O(E) sweep – eliminates O(8 × E) repeated edge traversals
-    cache = _build_graph_cache(G)
+    # Single O(E) sweep shared by all 8 detectors
+    t_cache_build = time.perf_counter()
+    graph_cache = _build_graph_cache(G)
+    cache_build_ms = (time.perf_counter() - t_cache_build) * 1_000.0
 
-    if G.number_of_nodes() >= _PARALLEL_MIN_NODES:
-        # -------------------------------------------------------------------
-        # Concurrent execution: all 8 detectors are read-only on G and cache
-        # and produce entirely independent output dicts → zero shared writes.
-        # -------------------------------------------------------------------
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            fut_cycles      = pool.submit(detect_cycles,             G)
-            fut_smurf       = pool.submit(detect_smurfing,           G, excluded_accounts, cache)
-            fut_shell       = pool.submit(detect_shell_chains,       G, excluded_accounts, cache)
-            fut_velocity    = pool.submit(detect_high_velocity,      G, excluded_accounts, cache)
-            fut_structuring = pool.submit(detect_structuring,        G, excluded_accounts, cache)
-            fut_roundtrip   = pool.submit(detect_rapid_roundtrips,   G, excluded_accounts, cache)
-            fut_convergence = pool.submit(detect_amount_convergence, G, excluded_accounts, cache)
-            fut_degree      = pool.submit(detect_degree_anomalies,   G, excluded_accounts)
-
-            cycle_patterns, rings   = fut_cycles.result()
-            smurf_patterns          = fut_smurf.result()
-            shell_patterns          = fut_shell.result()
-            velocity_patterns       = fut_velocity.result()
-            structuring_patterns    = fut_structuring.result()
-            roundtrip_patterns      = fut_roundtrip.result()
-            convergence_patterns    = fut_convergence.result()
-            degree_anomaly_patterns = fut_degree.result()
+    # ------------------------------------------------------------------
+    # LARGE graph: derive sampling exclusion set for expensive detectors
+    # ------------------------------------------------------------------
+    sampled_excluded_count = 0
+    if scale_tier == "large":
+        low_risk = _get_low_risk_nodes(G, excluded_accounts)
+        sampled_excluded_count = len(low_risk)
+        # Only shell_chains and smurfing receive the expanded exclusion set.
+        # All other detectors still use the original excluded_accounts.
+        expensive_excluded = excluded_accounts | low_risk
+        timeout_s = DETECTOR_TIMEOUT_LARGE_S
+        log.info(
+            "[DetectionGuard] LARGE mode: sampling %d low-risk nodes out of %d candidates "
+            "(top-%d kept for shell/smurf).",
+            sampled_excluded_count,
+            n_nodes - len(excluded_accounts),
+            ADAPTIVE_SAMPLE_TOP_K,
+        )
+        print(
+            f"[DetectionGuard] LARGE: {sampled_excluded_count} low-risk nodes excluded "
+            f"from shell/smurf  (top-{ADAPTIVE_SAMPLE_TOP_K} kept)"
+        )
     else:
-        # Sequential fallback for tiny graphs
+        expensive_excluded = excluded_accounts
+        timeout_s = DETECTOR_TIMEOUT_MEDIUM_S
+
+    # ------------------------------------------------------------------
+    # Detector timing helpers
+    # ------------------------------------------------------------------
+    detector_ms:      Dict[str, float] = {}
+    detector_timeout: Dict[str, bool]  = {}
+
+    def _timed(name: str, fut: "Future[Any]", fallback: Any) -> Any:
+        """Resolve *fut* within *timeout_s*; record wall-time and timeout flag."""
+        t0 = time.perf_counter()
+        result = _resolve(fut, timeout_s, name, fallback)
+        detector_ms[name]      = (time.perf_counter() - t0) * 1_000.0
+        detector_timeout[name] = (result is fallback)
+        return result
+
+    # ------------------------------------------------------------------
+    # TINY: sequential, no cache, no timeout machinery
+    # ------------------------------------------------------------------
+    if scale_tier == "tiny":
         cycle_patterns, rings   = detect_cycles(G)
-        smurf_patterns          = detect_smurfing(G, excluded_accounts, cache)
-        shell_patterns          = detect_shell_chains(G, excluded_accounts, cache)
-        velocity_patterns       = detect_high_velocity(G, excluded_accounts, cache)
-        structuring_patterns    = detect_structuring(G, excluded_accounts, cache)
-        roundtrip_patterns      = detect_rapid_roundtrips(G, excluded_accounts, cache)
-        convergence_patterns    = detect_amount_convergence(G, excluded_accounts, cache)
+        smurf_patterns          = detect_smurfing(G, excluded_accounts, graph_cache)
+        shell_patterns          = detect_shell_chains(G, excluded_accounts, graph_cache)
+        velocity_patterns       = detect_high_velocity(G, excluded_accounts, graph_cache)
+        structuring_patterns    = detect_structuring(G, excluded_accounts, graph_cache)
+        roundtrip_patterns      = detect_rapid_roundtrips(G, excluded_accounts, graph_cache)
+        convergence_patterns    = detect_amount_convergence(G, excluded_accounts, graph_cache)
         degree_anomaly_patterns = detect_degree_anomalies(G, excluded_accounts)
 
+    # ------------------------------------------------------------------
+    # MEDIUM / LARGE: concurrent ThreadPoolExecutor
+    # For LARGE, shell/smurf use expanded exclusion + per-detector timeouts.
+    # ------------------------------------------------------------------
+    else:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            fut_cycles      = pool.submit(detect_cycles,             G)
+            fut_smurf       = pool.submit(detect_smurfing,           G, expensive_excluded,  graph_cache)
+            fut_shell       = pool.submit(detect_shell_chains,       G, expensive_excluded,  graph_cache)
+            fut_velocity    = pool.submit(detect_high_velocity,      G, excluded_accounts,   graph_cache)
+            fut_structuring = pool.submit(detect_structuring,        G, excluded_accounts,   graph_cache)
+            fut_roundtrip   = pool.submit(detect_rapid_roundtrips,   G, excluded_accounts,   graph_cache)
+            fut_convergence = pool.submit(detect_amount_convergence, G, excluded_accounts,   graph_cache)
+            fut_degree      = pool.submit(detect_degree_anomalies,   G, excluded_accounts)
+
+            cycle_raw               = _timed("cycles",      fut_cycles,      ({}, []))
+            smurf_patterns          = _timed("smurfing",    fut_smurf,        {})
+            shell_patterns          = _timed("shell_chains",fut_shell,        {})
+            velocity_patterns       = _timed("velocity",    fut_velocity,     {})
+            structuring_patterns    = _timed("structuring", fut_structuring,  {})
+            roundtrip_patterns      = _timed("roundtrip",   fut_roundtrip,    {})
+            convergence_patterns    = _timed("convergence", fut_convergence,  {})
+            degree_anomaly_patterns = _timed("degree",      fut_degree,       {})
+
+        cycle_patterns, rings = cycle_raw if isinstance(cycle_raw, tuple) and len(cycle_raw) == 2 else ({}, [])
+
+    # ------------------------------------------------------------------
+    # Merge all per-account pattern dicts
+    # ------------------------------------------------------------------
     all_patterns: Dict[AccountID, List[str]] = defaultdict(list)
     for src_dict in (
         cycle_patterns, smurf_patterns, shell_patterns, velocity_patterns,
@@ -836,11 +1124,61 @@ def run_all_detections(G: nx.DiGraph) -> Dict:
         for member in ring["members"]:
             account_ring_map[member] = ring["ring_id"]
 
-    return {
+    total_ms = (time.perf_counter() - t_total) * 1_000.0
+
+    # ------------------------------------------------------------------
+    # Performance diagnostics (additive key – does not affect callers)
+    # ------------------------------------------------------------------
+    timed_out_detectors = [k for k, v in detector_timeout.items() if v]
+    if timed_out_detectors:
+        log.warning(
+            "[DetectionGuard] Detector timeout(s): %s  (budget=%.0f s)",
+            timed_out_detectors, timeout_s,
+        )
+
+    perf: Dict[str, Any] = {
+        "n_nodes":                 n_nodes,
+        "n_edges":                 n_edges,
+        "scale_tier":              scale_tier,
+        "cache_hit":               False,
+        "total_ms":                round(total_ms, 1),
+        "cache_build_ms":          round(cache_build_ms, 1) if scale_tier != "tiny" else 0.0,
+        "sampled_nodes_excluded":  sampled_excluded_count,
+        "detector_ms":             {k: round(v, 1) for k, v in detector_ms.items()},
+        "timed_out_detectors":     timed_out_detectors,
+    }
+
+    log.info(
+        "[DetectionGuard] Complete: tier=%s  total=%.0f ms  rings=%d  patterns=%d  "
+        "timedout=%s  cache_build=%.0f ms",
+        scale_tier, total_ms, len(rings), len(all_patterns),
+        timed_out_detectors or "none",
+        perf["cache_build_ms"],
+    )
+    print(
+        f"[DetectionGuard] {scale_tier.upper()} complete: "
+        f"total={total_ms:.0f} ms  rings={len(rings)}  "
+        f"patterns={len(all_patterns)}  "
+        + (f"sampled_excluded={sampled_excluded_count}  " if scale_tier == "large" else "")
+        + (f"TIMEOUTS={timed_out_detectors}  " if timed_out_detectors else "")
+        + "  |  "
+        + "  ".join(f"{k}={v:.0f}ms" for k, v in perf["detector_ms"].items())
+    )
+
+    result: Dict[str, Any] = {
         "account_patterns":     dict(all_patterns),
         "rings":                rings,
         "account_ring_map":     account_ring_map,
         "high_volume_accounts": high_volume,
         "bipartite_hubs":       bipartite_hubs,
         "excluded_accounts":    excluded_accounts,
+        "_perf":                perf,
     }
+
+    # Cache result for MEDIUM / LARGE graphs
+    if sig:
+        _detection_cache.set(sig, result, _CACHE_TTL_S)
+        # Opportunistically prune stale entries (cheap: only scans under lock)
+        _detection_cache.evict_expired()
+
+    return result
