@@ -130,6 +130,42 @@ def get_current_model() -> Optional[Pipeline]:
         return _registry.pipeline
 
 
+def get_model_status() -> dict:
+    """Return a concise dict describing the current model registry state.
+
+    Designed for use by the ``GET /metrics`` endpoint — all reads are
+    in-process (no I/O), so latency is sub-millisecond.
+
+    Returns::
+
+        {
+          "status":     "loaded" | "unavailable",
+          "source":     "disk"   | "inline" | "scheduler" | "none",
+          "n_samples":  int,
+          "trained_at": "2025-01-01T12:00:00Z" | null,
+        }
+    """
+    with _registry_lock:
+        pipeline   = _registry.pipeline
+        source     = _registry.source
+        n_samples  = _registry.n_samples
+        trained_at = _registry.trained_at
+
+    trained_str: Optional[str] = None
+    if trained_at is not None:
+        from datetime import datetime, timezone  # local import – stdlib only
+        trained_str = datetime.fromtimestamp(trained_at, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+    return {
+        "status":     "loaded" if pipeline is not None else "unavailable",
+        "source":     source,
+        "n_samples":  n_samples,
+        "trained_at": trained_str,
+    }
+
+
 def _set_model(pipeline: Pipeline, source: str, n_samples: int) -> None:
     """Atomically replace the production model.  Called by startup_init and the scheduler."""
     with _registry_lock:

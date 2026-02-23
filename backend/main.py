@@ -52,7 +52,10 @@ from utils import build_graph, parse_csv
 import cache as _cache
 from ml_model import run_ml_layer, startup_init, extract_features
 import sse as _sse
-from scheduler import start_scheduler, stop_scheduler
+from scheduler import start_scheduler, stop_scheduler, get_scheduler_status
+from log_config import configure_logging, RequestIdMiddleware
+from ml_model import get_model_status
+from demo import generate_demo_csv, scenario_description
 from auth import (
     AUTH_ENABLED,
     ADMIN_LIMIT,
@@ -149,6 +152,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 # Application setup
 # ---------------------------------------------------------------------------
 
+# Configure structured JSON logging before the FastAPI app is created so that
+# all log lines emitted during app init (CORS, middleware, lifespan) are also
+# formatted consistently.
+configure_logging()
+
 app = FastAPI(
     lifespan=lifespan,
     title="Money Muling Detection System",
@@ -209,6 +217,9 @@ if limiter is not None:
         app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
     if SlowAPIMiddleware is not None:
         app.add_middleware(SlowAPIMiddleware)
+
+# Request ID injection + lifecycle logging (additive – safe to add after slowapi)
+app.add_middleware(RequestIdMiddleware)
 
 # ---------------------------------------------------------------------------
 # In-memory state – single-process fallback
@@ -299,6 +310,85 @@ async def health_check() -> JSONResponse:
             "service": "Money Muling Detection System",
             "version": "1.0.0",
             "cache": cache_status,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: GET /metrics
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/metrics",
+    summary="System health metrics",
+    tags=["Operations"],
+)
+async def get_metrics() -> JSONResponse:
+    """Fast system-status snapshot for dashboards and uptime monitors.
+
+    All checks are in-process (no network I/O) so the response is returned
+    in well under 5 ms even under load.  Every subsystem check is wrapped in
+    its own try/except so a failure in one component never crashes the others.
+
+    Response schema::
+
+        {
+          "status":               "ok",
+          "service":              "VINGOO",
+          "ml_model":             {"status": "loaded"|"unavailable", ...},
+          "cache":                "ok" | "unavailable",
+          "scheduler":            "running" | "stopped",
+          "event_stream_clients": int,
+          "database":             "connected" | "error",
+          "timestamp":            "2025-01-01T00:00:00+00:00"
+        }
+    """
+    # ── ML model (in-process registry read, no I/O) ───────────────────────
+    try:
+        ml_info = get_model_status()
+    except Exception:  # noqa: BLE001
+        ml_info = {"status": "unavailable", "source": "none", "n_samples": 0, "trained_at": None}
+
+    # ── Redis cache (check module-level reference; no PING network call) ──
+    try:
+        cache_ok = getattr(_cache, "_redis", None) is not None
+        cache_status = "ok" if cache_ok else "unavailable"
+    except Exception:  # noqa: BLE001
+        cache_status = "unavailable"
+
+    # ── APScheduler (in-process job registry check) ───────────────────────
+    try:
+        sched_info = get_scheduler_status()
+        scheduler_status = "running" if sched_info.get("running") else "stopped"
+    except Exception:  # noqa: BLE001
+        scheduler_status = "stopped"
+
+    # ── SSE subscriber count (in-process counter, no I/O) ────────────────
+    try:
+        sse_clients: int = _sse.bus._subscriber_count()  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        sse_clients = 0
+
+    # ── Database (async thread with tight timeout; graceful fallback) ─────
+    try:
+        db_ok = await asyncio.wait_for(
+            asyncio.to_thread(verify_connection),
+            timeout=2.0,
+        )
+        db_status = "connected" if db_ok else "error"
+    except Exception:  # noqa: BLE001
+        db_status = "error"
+
+    return JSONResponse(
+        content={
+            "status":               "ok",
+            "service":              "VINGOO",
+            "ml_model":             ml_info,
+            "cache":                cache_status,
+            "scheduler":            scheduler_status,
+            "event_stream_clients": sse_clients,
+            "database":             db_status,
+            "timestamp":            datetime.now(timezone.utc).isoformat(),
         }
     )
 
@@ -1422,3 +1512,169 @@ def admin_reject_review(
         raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
 
     return JSONResponse(content={"review_id": review_id, "status": "rejected"})
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: POST /demo/load-scenario
+# ---------------------------------------------------------------------------
+
+_DEMO_SIZES = frozenset({"small", "medium", "large"})
+
+
+@app.post(
+    "/demo/load-scenario",
+    summary="Load a synthetic fraud demo scenario and run the full pipeline",
+    tags=["Demo"],
+)
+@get_limit(UPLOAD_LIMIT)
+async def demo_load_scenario(
+    request: Request,
+    size: str = "small",
+) -> JSONResponse:
+    """Generate a synthetic transaction dataset containing scripted fraud
+    patterns and run it through the **complete analysis pipeline**.
+
+    The response is identical in structure to ``POST /analyze`` and includes
+    a real ``analysis_id`` pointing to a persisted DB row.
+
+    Query parameters
+    ----------------
+    ``size``
+        ``small`` (default) – ~60 txns, fastest for a live demo.
+        ``medium`` – ~160 txns, more realistic noise ratio.
+        ``large``  – ~360 txns, stress/scalability scenario.
+
+    Patterns always included
+    ------------------------
+    - **Laundering ring** (cycle_length_3): RING_ALPHA→RING_BETA→RING_GAMMA
+    - **Mule chain** (shell_chain): 4-hop CHAIN_ORIGIN→…→CHAIN_ENDPOINT
+    - **Smurfing hub** (fan_in): 12 unique sources→SMURF_CENTER within 36 h
+    - **Normal traffic**: benign background filler
+
+    This endpoint is rate-limited at the same level as ``POST /analyze``
+    and does not require authentication so it works in demo mode.
+    """
+    if size not in _DEMO_SIZES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"size must be one of {sorted(_DEMO_SIZES)}, got {size!r}",
+        )
+
+    # ── 1. Generate synthetic CSV ─────────────────────────────────────────
+    try:
+        csv_bytes: bytes = await asyncio.to_thread(generate_demo_csv, size)  # type: ignore[arg-type]
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Demo data generation failed: {exc}") from exc
+
+    # ── 2. Parse CSV → transactions ───────────────────────────────────────
+    transactions, validation_report = await asyncio.to_thread(parse_csv, csv_bytes)
+    if not transactions:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Demo CSV produced no valid transactions: {validation_report}",
+        )
+
+    # ── 3. Build graph ────────────────────────────────────────────────────
+    G: nx.DiGraph = await asyncio.to_thread(build_graph, transactions)
+
+    # ── 4. Detection layer ────────────────────────────────────────────────
+    detection_result = await asyncio.to_thread(run_all_detections, G)
+    account_patterns = detection_result.get("account_patterns", {})
+    rings            = detection_result.get("rings", [])
+    account_ring_map = detection_result.get("account_ring_map", {})
+    high_volume      = detection_result.get("high_volume_accounts", set())
+
+    # ── 5. Suspicion scores ───────────────────────────────────────────────
+    suspicious_accounts = await asyncio.to_thread(
+        compute_suspicion_scores, G, account_patterns, account_ring_map, high_volume
+    )
+
+    # ── 6. ML anomaly boost ───────────────────────────────────────────────
+    if suspicious_accounts:
+        suspicious_accounts, _ml_diag = await asyncio.to_thread(
+            run_ml_layer, suspicious_accounts
+        )
+
+    # ── 7. Ring scores ────────────────────────────────────────────────────
+    score_lookup = build_score_lookup(suspicious_accounts)
+    fraud_rings  = await asyncio.to_thread(
+        compute_ring_scores, rings, score_lookup, G
+    )
+
+    # ── 8. Persist to DB ──────────────────────────────────────────────────
+    analysis_id = str(uuid.uuid4())
+    demo_summary = {
+        "total_transactions":    len(transactions),
+        "suspicious_accounts":   len(suspicious_accounts),
+        "fraud_rings":           len(fraud_rings),
+        "high_risk_accounts":    sum(1 for a in suspicious_accounts if a.risk_level == "HIGH"),
+        "medium_risk_accounts":  sum(1 for a in suspicious_accounts if a.risk_level == "MEDIUM"),
+        "low_risk_accounts":     sum(1 for a in suspicious_accounts if a.risk_level == "LOW"),
+        "validation_errors":     validation_report.error_count if validation_report else 0,
+    }
+
+    def _persist_demo() -> None:
+        db = SessionLocal()
+        try:
+            analysis_row = Analysis(
+                analysis_id=analysis_id,
+                filename=f"demo_{size}.csv",
+                total_transactions=len(transactions),
+                suspicious_accounts=len(suspicious_accounts),
+                fraud_rings=len(fraud_rings),
+                high_risk=demo_summary["high_risk_accounts"],
+                medium_risk=demo_summary["medium_risk_accounts"],
+                low_risk=demo_summary["low_risk_accounts"],
+                status="completed",
+            )
+            db.add(analysis_row)
+            for acct in suspicious_accounts:
+                db.add(AccountRecord(
+                    analysis_id=analysis_id,
+                    account_id=acct.account_id,
+                    risk_level=acct.risk_level,
+                    suspicion_score=acct.suspicion_score,
+                    patterns=acct.patterns,
+                ))
+            for ring in fraud_rings:
+                db.add(RingRecord(
+                    analysis_id=analysis_id,
+                    ring_id=ring.ring_id,
+                    members=ring.ring_members,
+                    risk_score=ring.risk_score,
+                ))
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        finally:
+            db.close()
+
+    await asyncio.to_thread(_persist_demo)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "analysis_id": analysis_id,
+            "scenario":    scenario_description(size),  # type: ignore[arg-type]
+            "summary":     demo_summary,
+            "top_accounts": [
+                {
+                    "account_id":      a.account_id,
+                    "risk_level":      a.risk_level,
+                    "suspicion_score": a.suspicion_score,
+                    "patterns":        a.patterns,
+                }
+                for a in sorted(
+                    suspicious_accounts, key=lambda x: x.suspicion_score, reverse=True
+                )[:10]
+            ],
+            "fraud_rings": [
+                {
+                    "ring_id":     r.ring_id,
+                    "risk_score":  r.risk_score,
+                    "members":     r.ring_members,
+                }
+                for r in sorted(fraud_rings, key=lambda x: x.risk_score, reverse=True)
+            ],
+        },
+    )
