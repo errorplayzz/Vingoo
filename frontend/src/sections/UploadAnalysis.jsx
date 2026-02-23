@@ -3,9 +3,10 @@
  * Core conversion section — uploads CSV, runs real POST /analyze,
  * renders loading states, errors, and summary on completion.
  */
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useInView } from "react-intersection-observer";
+import { useNavigate }  from "react-router-dom";
 import { useAnalysis } from "../context/AnalysisContext";
 import { useToast } from "../context/ToastContext";
 
@@ -294,8 +295,17 @@ function ResultsSummary({ result }) {
 /* ── Main section ──────────────────────────────────────────────────────────── */
 export default function UploadAnalysis() {
   const { status, progress, result, error, fileName, runAnalysis, reset } = useAnalysis();
-  const toast = useToast();
+  const toast     = useToast();
+  const navigate  = useNavigate();
   const [headerRef, headerInView] = useInView({ triggerOnce: true, threshold: 0.2 });
+
+  // Navigate to the permanent investigation workspace as soon as the analysis
+  // is complete and has an analysis_id from the backend.
+  useEffect(() => {
+    if (status === 'done' && result?.analysis_id) {
+      navigate(`/investigation/${result.analysis_id}`);
+    }
+  }, [status, result?.analysis_id, navigate]);
 
   const handleFile = useCallback(async (file) => {
     if (!file.name.toLowerCase().endsWith(".csv")) {

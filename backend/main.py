@@ -557,7 +557,13 @@ async def analyze(
         ml_active=bool(ml_diag.get("ml_active", 0)),
     )
 
+    # Generate a stable UUID for this analysis before building the response.
+    # Pre-generating ensures the same ID is in both the API response and the
+    # DB row — the frontend uses it as a permanent /investigation/:id route.
+    analysis_id = str(uuid.uuid4())
+
     response = AnalysisResponse(
+        analysis_id=analysis_id,
         suspicious_accounts=suspicious_accounts,
         fraud_rings=fraud_rings,
         summary=summary,
@@ -635,6 +641,7 @@ async def analyze(
         db: Session = SessionLocal()
         try:
             db_analysis = Analysis(
+                id=uuid.UUID(analysis_id),   # Use pre-generated ID from response
                 total_accounts=summary.total_accounts_analyzed,
                 suspicious_flagged=summary.suspicious_accounts_flagged,
                 rings_detected=summary.fraud_rings_detected,

@@ -171,6 +171,10 @@ class AnalysisSummary(BaseModel):
 class AnalysisResponse(BaseModel):
     """Root response envelope for POST /analyze."""
 
+    analysis_id: Optional[str] = Field(
+        None,
+        description="Stable UUID for this analysis — used by /investigation/:id route",
+    )
     suspicious_accounts: List[SuspiciousAccount] = Field(
         default_factory=list,
         description="Suspicious accounts sorted descending by suspicion_score"

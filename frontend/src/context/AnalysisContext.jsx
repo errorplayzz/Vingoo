@@ -181,12 +181,29 @@ export function AnalysisProvider({ children }) {
     setHighlightedRingId(null);
   }, []);
 
+  /**
+   * Restore a previously-fetched analysis into context.
+   * Used by InvestigationPage when loading /investigation/:id from the
+   * backend — allows all existing sections (ResultsDashboard, GraphViz)
+   * to render without any component changes.
+   */
+  const restoreResult = useCallback((data) => {
+    setResult(data);
+    setRawResult(data);
+    setStatus("done");
+    setProgress(100);
+    setError(null);
+    setFileName(
+      data?.analysis_id ? `investigation:${data.analysis_id.slice(0, 8)}` : "restored",
+    );
+  }, []);
+
   // ── Memoised context values ───────────────────────────────────────────────
   // Actions reference is stable → consumers calling useAnalysisActions() never
   // re-render when state values change.
   const actionsValue = useMemo(
-    () => ({ pingHealth, runAnalysis, reset, setHighlightedRingId, setInvestigatorMode }),
-    [pingHealth, runAnalysis, reset],
+    () => ({ pingHealth, runAnalysis, reset, restoreResult, setHighlightedRingId, setInvestigatorMode }),
+    [pingHealth, runAnalysis, reset, restoreResult],
   );
 
   const stateValue = useMemo(
