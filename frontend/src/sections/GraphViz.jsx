@@ -773,6 +773,47 @@ export default function GraphViz() {
   const patterns              = usePatterns();
   const { highlightedRingId, result } = useAnalysis();
 
+  // ── Blur / reveal ──────────────────────────────────────────────────────────
+  // Demo mode (no result): graph is always visible.
+  // Analysis mode (result present): graph starts blurred, reveals on scroll.
+  const graphRef = useRef(null);
+  const [graphRevealed, setGraphRevealed] = useState(false);
+
+  useEffect(() => {
+    // No real data — show demo graph immediately
+    if (!result?.analysis_id) {
+      setGraphRevealed(true);
+      return;
+    }
+
+    // A new result just arrived — start in blurred state
+    setGraphRevealed(false);
+
+    const el = graphRef.current;
+    if (!el) return;
+
+    // If the graph is already in view (e.g. user was scrolled here), reveal after delay
+    const rect = el.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 0.75) {
+      const t = setTimeout(() => setGraphRevealed(true), 900);
+      return () => clearTimeout(t);
+    }
+
+    // Otherwise wait for scroll-into-view (the climax moment)
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          const t = setTimeout(() => setGraphRevealed(true), 650);
+          observer.disconnect();
+          return () => clearTimeout(t);
+        }
+      },
+      { threshold: 0.30 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [result?.analysis_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const highlightedNodeIds = useMemo(() => {
     if (!highlightedRingId || !result?.fraud_rings) return new Set();
     const ring = result.fraud_rings.find((r) => r.ring_id === highlightedRingId);
@@ -827,8 +868,8 @@ export default function GraphViz() {
               </div>
             </div>
 
-            {/* Canvas */}
-            <div className="relative">
+            {/* Canvas — with scroll-triggered blur-to-reveal for real analysis data */}
+            <div ref={graphRef} className="relative">
               <NodeTooltip node={hovered} />
               <D3Graph
                 key={`${nodes.length}-${edges.length}`}
@@ -838,6 +879,50 @@ export default function GraphViz() {
                 onNodeHover={setHovered}
                 onResetIsolation={handleReset}
               />
+
+              {/* Blur overlay — lifts when graph enters viewport + short delay */}
+              {/* Only shown for real analysis data, never for demo mode       */}
+              <AnimatePresence>
+                {!graphRevealed && result?.analysis_id && (
+                  <motion.div
+                    key="graph-blur"
+                    className="absolute inset-0 rounded-xl flex flex-col items-center justify-center gap-4"
+                    style={{
+                      backdropFilter: 'blur(12px)',
+                      WebkitBackdropFilter: 'blur(12px)',
+                      background: 'rgba(255,255,255,0.55)',
+                      border: '1px solid rgba(29,78,216,0.10)',
+                    }}
+                    initial={{ opacity: 1 }}
+                    exit={{
+                      opacity: 0,
+                      backdropFilter: 'blur(0px)',
+                      WebkitBackdropFilter: 'blur(0px)',
+                      transition: { duration: 0.9, ease: [0.22, 1, 0.36, 1] },
+                    }}
+                  >
+                    {/* Pulse indicator */}
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+                        <motion.div
+                          className="absolute inset-0 rounded-full bg-accent/10"
+                          animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity }}
+                        />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[12px] font-semibold text-accent uppercase tracking-widest">
+                          Network Assembling
+                        </p>
+                        <p className="text-[11px] text-faint mt-1">
+                          Scroll to reveal the fraud network
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <p className="mt-2.5 text-[10.5px] text-faint text-center">
               Hover for details  Click node to isolate subgraph  Click background to reset  Scroll to zoom  Drag nodes

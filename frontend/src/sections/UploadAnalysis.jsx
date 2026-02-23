@@ -8,7 +8,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useInView } from "react-intersection-observer";
 import { useNavigate }  from "react-router-dom";
 import { useAnalysis } from "../context/AnalysisContext";
-import { useToast } from "../context/ToastContext";
+import { useToast }    from "../context/ToastContext";
+import { useInvestigationPhase, PHASE, PHASE_LABELS } from "../intelligence/useInvestigationPhase";
+import ScanSweep         from "../intelligence/ScanSweep";
+import EventNotification from "../intelligence/EventNotification";
 
 const EASE = [0.4, 0, 0.2, 1];
 
@@ -124,7 +127,11 @@ function DropZone({ onFile }) {
 }
 
 /* ── Loading panel ─────────────────────────────────────────────────────────── */
-function LoadingPanel({ progress, fileName }) {
+function LoadingPanel({ progress, fileName, phase }) {
+  // Phase-driven label takes priority over progress-threshold label
+  const phaseLabel = phase && phase !== PHASE.IDLE ? PHASE_LABELS[phase] : null;
+
+  // Fallback: progress threshold stages (used when no SSE phase available)
   const stages = [
     { at: 10,  label: "Reading file" },
     { at: 30,  label: "Building transaction graph" },
@@ -132,7 +139,8 @@ function LoadingPanel({ progress, fileName }) {
     { at: 75,  label: "Computing suspicion scores" },
     { at: 90,  label: "Generating intelligence report" },
   ];
-  const currentStage = [...stages].reverse().find((s) => progress >= s.at)?.label ?? "Initialising";
+  const fallbackStage = [...stages].reverse().find((s) => progress >= s.at)?.label ?? "Initialising";
+  const currentStage  = phaseLabel ?? fallbackStage;
 
   return (
     <div className="w-full">
@@ -143,8 +151,11 @@ function LoadingPanel({ progress, fileName }) {
         <Skeleton className="h-4 w-2/3" />
       </div>
 
-      <div className="p-6 rounded-2xl border border-black/[0.06] bg-white"
+      {/* Analysis card with scanning sweep overlay */}
+      <div className="relative p-6 rounded-2xl border border-black/[0.06] bg-white"
         style={{ boxShadow: "0 2px 16px rgba(0,0,0,0.05)" }}>
+        <ScanSweep active />
+        <div className="relative z-10">
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[13px] font-semibold text-ink">{currentStage}…</p>
@@ -163,6 +174,7 @@ function LoadingPanel({ progress, fileName }) {
             </div>
           ))}
         </div>
+        </div>{/* /relative z-10 */}
       </div>
     </div>
   );
@@ -297,6 +309,10 @@ export default function UploadAnalysis() {
   const { status, progress, result, error, fileName, runAnalysis, reset } = useAnalysis();
   const toast     = useToast();
   const navigate  = useNavigate();
+  // Phase engine — drives stage labels and SSE-fed progress
+  const { phase, sseProgress } = useInvestigationPhase();
+  // SSE progress supersedes the fake interval when available
+  const displayProgress = sseProgress ?? progress;
   const [headerRef, headerInView] = useInView({ triggerOnce: true, threshold: 0.2 });
 
   // Navigate to the permanent investigation workspace as soon as the analysis
@@ -400,7 +416,7 @@ export default function UploadAnalysis() {
                 <motion.div key="loading"
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   transition={{ duration: 0.3 }}>
-                  <LoadingPanel progress={progress} fileName={fileName} />
+                  <LoadingPanel progress={displayProgress} fileName={fileName} phase={phase} />
                 </motion.div>
               )}
 
@@ -424,6 +440,9 @@ export default function UploadAnalysis() {
 
         </div>
       </div>
+
+      {/* Phase notifications — show during analysis on this page */}
+      {isLoading && <EventNotification phase={phase} />}
     </section>
   );
 }

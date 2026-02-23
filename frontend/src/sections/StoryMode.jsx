@@ -197,45 +197,127 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
 /*  Beat data  */
 const BEATS = [
   {
-    phase: "01 / Upload",
+    chapter: "01",
+    phase:   "01 / Upload",
     headline: "A file arrives.",
     sub: "Raw transaction data. Flat rows. No visible structure.",
     detail: "The engine receives sender, receiver, amount, and timestamp.",
   },
   {
-    phase: "02 / Map",
+    chapter: "02",
+    phase:   "02 / Map",
     headline: "The graph takes shape.",
     sub: "Every transfer becomes a directed edge. 847 unique nodes surface.",
     detail: "Cyclic structures emerge where none were visible in the table.",
   },
   {
-    phase: "03 / Detect",
+    chapter: "03",
+    phase:   "03 / Detect",
     headline: "Cycle detected.",
     sub: "A closed money loop. Funds routing through four accounts.",
     detail: null,
   },
   {
-    phase: "04 / Score",
+    chapter: "04",
+    phase:   "04 / Score",
     headline: "Suspicion scored.",
     sub: "Composite risk: 94 of 100. Seven signals aligned in a pattern.",
     detail: "Centrality  velocity  flow imbalance  pattern participation.",
   },
   {
-    phase: "05 / Export",
+    chapter: "05",
+    phase:   "05 / Export",
     headline: "Intelligence ready.",
     sub: "Case-ready JSON structured for law enforcement review.",
     detail: "Full audit trail  source data traceable  timestamp verified.",
   },
 ];
 
+/* ── Chapter Timeline ──────────────────────────────────────────────────────────
+ * Vertical left-side timeline showing chapter progress.               */
+const ChapterTimeline = memo(function ChapterTimeline({ chapters, activeIndex }) {
+  return (
+    <div
+      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden md:flex flex-col items-center gap-0"
+      aria-hidden
+    >
+      {chapters.map((beat, i) => {
+        const isActive = i === activeIndex;
+        const isPast   = i < activeIndex;
+        return (
+          <div key={beat.chapter} className="flex flex-col items-center">
+            {/* Connector line above (except first) */}
+            {i > 0 && (
+              <motion.div
+                className="w-px"
+                style={{ height: 28 }}
+                animate={{ background: isPast || isActive ? 'rgba(29,78,216,0.45)' : 'rgba(0,0,0,0.12)' }}
+                transition={{ duration: 0.4 }}
+              />
+            )}
+
+            {/* Chapter node */}
+            <motion.div
+              className="relative flex flex-col items-center"
+              animate={isActive ? { scale: 1.12 } : { scale: 1 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {/* Outer ring (active only) */}
+              {isActive && (
+                <motion.div
+                  className="absolute inset-0 rounded-full border border-accent/40"
+                  initial={{ scale: 1, opacity: 0 }}
+                  animate={{ scale: 1.8, opacity: 0 }}
+                  transition={{ duration: 1.2, repeat: Infinity, ease: 'easeOut' }}
+                  style={{ margin: -4 }}
+                />
+              )}
+
+              {/* Dot */}
+              <motion.div
+                className="w-2.5 h-2.5 rounded-full border-2"
+                animate={{
+                  backgroundColor: isActive ? '#1D4ED8' : isPast ? 'rgba(29,78,216,0.35)' : 'transparent',
+                  borderColor:     isActive ? '#1D4ED8' : isPast ? 'rgba(29,78,216,0.35)' : 'rgba(0,0,0,0.20)',
+                }}
+                transition={{ duration: 0.35 }}
+              />
+
+              {/* Chapter number (active only) */}
+              <motion.span
+                className="absolute left-5 top-0 text-[10px] font-bold font-mono whitespace-nowrap"
+                animate={{
+                  opacity:     isActive ? 1 : 0,
+                  color:       '#1D4ED8',
+                  x:           isActive ? 0 : -4,
+                }}
+                transition={{ duration: 0.25 }}
+              >
+                {beat.chapter}
+              </motion.span>
+            </motion.div>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 /*  StoryMode  */
 export default function StoryMode() {
   const containerRef = useRef(null);
   const n = BEATS.length;
+  const [activeBeat, setActiveBeat] = useState(0);
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end end"],
+  });
+
+  // Track active beat index from scroll progress
+  useMotionValueEvent(scrollYProgress, "change", (v) => {
+    const idx = Math.min(n - 1, Math.max(0, Math.floor(v * n)));
+    setActiveBeat(idx);
   });
 
   return (
@@ -263,6 +345,9 @@ export default function StoryMode() {
             background: "radial-gradient(ellipse 80% 80% at 50% 50%, transparent 40%, #F7F8FA 100%)",
           }}
         />
+
+        {/* Left-side chapter timeline */}
+        <ChapterTimeline chapters={BEATS} activeIndex={activeBeat} />
 
         {/* Beat panels */}
         <div className="relative z-10 w-full container-wide" style={{ height: "100vh" }}>

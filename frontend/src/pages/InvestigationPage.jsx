@@ -30,12 +30,14 @@
 
 import { lazy, Suspense, memo, useEffect, useMemo } from 'react';
 import { useParams, useNavigate }                   from 'react-router-dom';
-import { motion }                                   from 'framer-motion';
+import { motion, AnimatePresence }                  from 'framer-motion';
 import { useAnalysisState, useAnalysisActions }     from '../context/AnalysisContext';
 import { useAdminAnalysisDetail }                   from '../hooks/useAdminData';
 import { generateExplanations }                     from '../utils/explainer';
 import Navbar                                       from '../components/Navbar';
 import Footer                                       from '../sections/Footer';
+import { useInvestigationPhase, PHASE, isPhaseAtLeast } from '../intelligence/useInvestigationPhase';
+import EventNotification                                from '../intelligence/EventNotification';
 
 // ── Lazy sections ────────────────────────────────────────────────────────────
 // Reuse the exact same lazy chunks as App.jsx — no extra network round-trips
@@ -216,6 +218,19 @@ function adminDetailToAnalysis(detail) {
 
 // ── Workspace ─────────────────────────────────────────────────────────────────
 function InvestigationWorkspace({ analysisId }) {
+  // Phase engine: tracks investigation progress for ambient effects
+  const { phase, advancePhase } = useInvestigationPhase();
+
+  // Once a threat is confirmed, advance to INVESTIGATION_READY after a beat
+  useEffect(() => {
+    if (isPhaseAtLeast(phase, PHASE.THREAT_IDENTIFIED)) {
+      const t = setTimeout(() => advancePhase(PHASE.INVESTIGATION_READY), 1800);
+      return () => clearTimeout(t);
+    }
+  }, [phase, advancePhase]);
+
+  const showTakeover = isPhaseAtLeast(phase, PHASE.INVESTIGATION_READY);
+
   return (
     <div className="bg-white font-sans">
       <Navbar />
@@ -239,6 +254,37 @@ function InvestigationWorkspace({ analysisId }) {
         </div>
       </div>
 
+      {/* Investigator Takeover Banner — slides in when investigation is ready */}
+      <AnimatePresence>
+        {showTakeover && (
+          <motion.div
+            key="takeover-banner"
+            className="bg-[#0A1226] border-b border-green-400/20 overflow-hidden"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="container-wide py-2.5 flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <motion.span
+                  className="w-2 h-2 rounded-full bg-green-400"
+                  animate={{ opacity: [1, 0.4, 1] }}
+                  transition={{ duration: 1.4, repeat: Infinity }}
+                />
+                <span className="text-[11px] font-bold text-green-400 uppercase tracking-widest">
+                  Investigation Ready
+                </span>
+              </div>
+              <span className="text-white/20 text-[11px]">—</span>
+              <span className="text-[11px] text-white/50">
+                Analyst control enabled
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main>
         {/* ResultsDashboard reads from AnalysisContext — already populated */}
         <Suspense fallback={<SectionFallback />}>
@@ -257,6 +303,9 @@ function InvestigationWorkspace({ analysisId }) {
       </main>
 
       <Footer />
+
+      {/* Phase event notifications — ambient investigation feedback */}
+      <EventNotification phase={phase} />
     </div>
   );
 }
