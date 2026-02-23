@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect } from 'react';
+import { Link }                from 'react-router-dom';
 import { motion, AnimatePresence } from "framer-motion";
 import StatusBadge from './StatusBadge';
-import { useAnalysis } from '../context/AnalysisContext';
+import { useAuth } from '../context/AuthContext';
 
 const links = [
   { label: "How It Works", href: "#how" },
@@ -14,7 +15,7 @@ const links = [
 export default function Navbar() {
   const [scrolled,     setScrolled]     = useState(false);
   const [menuOpen,     setMenuOpen]     = useState(false);
-  const { investigatorMode, setInvestigatorMode } = useAnalysis();
+  const { user, isAuthenticated, logout } = useAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -71,24 +72,52 @@ export default function Navbar() {
             ))}
           </nav>
 
-          {/* CTA + badges */}
+          {/* CTA + auth badges */}
           <div className="hidden md:flex items-center gap-3">
             <StatusBadge />
 
-            {/* Investigator mode toggle */}
-            <button
-              onClick={() => setInvestigatorMode((v) => !v)}
-              className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
-                investigatorMode
-                  ? "bg-accent text-white border-accent"
-                  : scrolled
+            {/* ── Auth section ─────────────────────────────────────── */}
+            {isAuthenticated ? (
+              /* Authenticated: show username chip + sign-out */
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/admin"
+                  className={`flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
+                    scrolled
+                      ? "bg-accent/[0.07] text-accent border-accent/20 hover:bg-accent/[0.12]"
+                      : "bg-white/[0.10] text-white/80 border-white/[0.15] hover:bg-white/[0.16]"
+                  }`}
+                  title="Open investigator console"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                  {user?.username ?? 'Investigator'}
+                </Link>
+                <button
+                  onClick={logout}
+                  className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
+                    scrolled
+                      ? "bg-white text-muted border-black/[0.10] hover:border-red-300 hover:text-red-600"
+                      : "bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90"
+                  }`}
+                  title="Sign out"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              /* Public: subtle sign-in link */
+              <Link
+                to="/login"
+                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
+                  scrolled
                     ? "bg-white text-muted border-black/[0.10] hover:border-accent/40 hover:text-ink"
                     : "bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90"
-              }`}
-              title="Toggle investigator mode"
-            >
-              {investigatorMode ? "🔍 Investigator ON" : "Investigator"}
-            </button>
+                }`}
+                title="Sign in to investigator console"
+              >
+                Sign In
+              </Link>
+            )}
 
             <motion.a
               href="#upload"

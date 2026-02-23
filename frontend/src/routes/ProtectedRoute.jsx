@@ -40,18 +40,19 @@
  */
 
 import { Navigate } from 'react-router-dom';
-import { useAnalysisState } from '../context/AnalysisContext';
+import { useAuthState } from '../context/AuthContext';
 
 /**
  * @param {{ children: React.ReactNode }} props
  */
 export default function ProtectedRoute({ children }) {
-  const { investigatorMode } = useAnalysisState();
+  const { isAuthenticated } = useAuthState();
 
-  if (!investigatorMode) {
-    // Redirect to landing page, replacing history entry so back-button
-    // doesn't loop the user back into an unauthorised route.
-    return <Navigate to="/" replace />;
+  if (!isAuthenticated) {
+    // Not authenticated — redirect to login page.
+    // Using /login (not /) so the user lands on the sign-in form, not the
+    // landing page, making the intent clear.
+    return <Navigate to="/login" replace />;
   }
 
   return children;

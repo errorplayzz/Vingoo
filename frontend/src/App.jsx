@@ -1,5 +1,6 @@
 import { lazy, Suspense, memo } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider }       from './context/AuthContext';
 import { AnalysisProvider }     from './context/AnalysisContext';
 import { ToastProvider }        from './context/ToastContext';
 import { useSseInvalidation }   from './hooks/useSseInvalidation';
@@ -28,8 +29,7 @@ const InvestigatorDashboard = lazy(() => import('./sections/InvestigatorDashboar
 
 // ── Route-level page chunks ──────────────────────────────────────────────────
 const InvestigationPage    = lazy(() => import('./pages/InvestigationPage'));
-const AdminPage            = lazy(() => import('./pages/AdminPage'));
-
+const AdminPage            = lazy(() => import('./pages/AdminPage'));const LoginPage            = lazy(() => import('./pages/LoginPage'));
 // Shared fallback — a thin shimmer bar that matches the section's min-height
 const SectionFallback = memo(() => (
   <div className="w-full py-20 flex items-center justify-center" aria-hidden>
@@ -90,10 +90,11 @@ function App() {
   useSseInvalidation();
 
   return (
-    <ToastProvider>
-      <AnalysisProvider>
-        {/* Scroll to top whenever the route pathname changes */}
-        <ScrollToTop />
+    <AuthProvider>
+      <ToastProvider>
+        <AnalysisProvider>
+          {/* Scroll to top whenever the route pathname changes */}
+          <ScrollToTop />
 
         <Routes>
           {/* ── Landing page ──────────────────────────────────────── */}
@@ -111,8 +112,20 @@ function App() {
             }
           />
 
+          {/* ── Investigator sign-in ─────────────────────────────── */}
+          {/* Public route — already-authenticated users redirected   */}
+          {/* to /admin by LoginPage's useEffect.                     */}
+          <Route
+            path="/login"
+            element={
+              <Suspense fallback={null}>
+                <LoginPage />
+              </Suspense>
+            }
+          />
+
           {/* ── Admin dashboard ───────────────────────────────────── */}
-          {/* Guarded — redirects to / if investigatorMode is false.  */}
+          {/* Guarded — redirects to /login if not authenticated.     */}}
           <Route
             path="/admin"
             element={
@@ -127,8 +140,9 @@ function App() {
           {/* ── Catch-all ─────────────────────────────────────────── */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </AnalysisProvider>
-    </ToastProvider>
+        </AnalysisProvider>
+      </ToastProvider>
+    </AuthProvider>
   );
 }
 

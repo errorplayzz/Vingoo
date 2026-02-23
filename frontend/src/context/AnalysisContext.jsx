@@ -33,6 +33,7 @@ import {
 } from "react";
 import { analyze, checkHealth } from "../api/client";
 import { generateExplanations } from "../utils/explainer";
+import { useAuthState }         from "./AuthContext";
 
 
 /* ── Contexts ─────────────────────────────────────────────────────────────── */
@@ -76,7 +77,14 @@ export function AnalysisProvider({ children }) {
   const [fileName,         setFileName]         = useState(null);
   const [highlightedRingId,setHighlightedRingId]= useState(null);
   const [apiHealth,        setApiHealth]        = useState("unknown"); // unknown|healthy|degraded
-  const [investigatorMode, setInvestigatorMode] = useState(false);
+
+  // ── investigatorMode ───────────────────────────────────────────────────────────────
+  // Derived from JWT authentication state — NOT a manual toggle.
+  // Phase 15 security upgrade: investigator console visibility is gated
+  // exclusively on whether the user holds a valid JWT, eliminating the
+  // soft boolean toggle that any user could enable without credentials.
+  const { isAuthenticated }  = useAuthState();
+  const investigatorMode     = isAuthenticated;
 
   // ── Ref — mutation, no re-render ──────────────────────────────────────────
   const explainCache = useRef(new Map());
@@ -202,7 +210,7 @@ export function AnalysisProvider({ children }) {
   // Actions reference is stable → consumers calling useAnalysisActions() never
   // re-render when state values change.
   const actionsValue = useMemo(
-    () => ({ pingHealth, runAnalysis, reset, restoreResult, setHighlightedRingId, setInvestigatorMode }),
+    () => ({ pingHealth, runAnalysis, reset, restoreResult, setHighlightedRingId }),
     [pingHealth, runAnalysis, reset, restoreResult],
   );
 
