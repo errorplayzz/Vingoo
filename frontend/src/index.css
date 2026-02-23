@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background: #ffffff;
+  color: #0A0A0B;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Selection ─────────────────────────────────────────────── */
+::selection { background: #1D4ED8; color: #fff; }
+
+/* ─── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: #f8fafc; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* ─── Layout helpers ─────────────────────────────────────────── */
+.container-wide {
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .container-wide {
+    padding-left: 3rem;
+    padding-right: 3rem;
+  }
+}
+
+/* ─── Glass card ─────────────────────────────────────────────── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+  border-radius: 1rem;
+}
+
+/* ─── SVG line animations ────────────────────────────────────── */
+.svg-edge {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: draw-edge 2.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes draw-edge {
+  to { stroke-dashoffset: 0; }
+}
+
+.node-pulse {
+  animation: node-appear 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  opacity: 0;
+}
+
+@keyframes node-appear {
+  from { opacity: 0; transform: scale(0); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ─── Hero dark title ────────────────────────────────────────── */
+.hero-title-dark {
+  font-size: clamp(2.75rem, 9vw, 7rem);
+  font-weight: 900;
+  line-height: 0.90;
+  letter-spacing: -0.04em;
+  color: #ffffff;
+}
+
+/* ─── Hero gradient text ─────────────────────────────────────── */
+.hero-gradient-text {
+  background: linear-gradient(135deg, #60A5FA 0%, #818CF8 40%, #A78BFA 75%, #60A5FA 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 5s linear infinite;
+}
+
+@keyframes gradient-shift {
+  0%   { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ─── Hero network edges ─────────────────────────────────────── */
+.hero-edge {
+  stroke-dasharray: 800;
+  stroke-dashoffset: 800;
+  animation: draw-hero-edge 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.hero-edge-ring {
+  stroke-dasharray: 800;
+  stroke-dashoffset: 800;
+  animation: draw-hero-edge 2.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes draw-hero-edge {
+  to { stroke-dashoffset: 0; }
+}
+
+/* ─── Hero nodes ────────────────────────────────────────────── */
+.hero-node {
+  opacity: 0;
+  animation: hero-node-appear 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes hero-node-appear {
+  from { opacity: 0; transform: scale(0); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ─── Ring pulse halo ───────────────────────────────────────── */
+.hero-ring-pulse {
+  opacity: 0;
+  animation: ring-halo 2.8s ease-out infinite;
+}
+@keyframes ring-halo {
+  0%  { opacity: 0;    r: 8;  }
+  20% { opacity: 0.55; }
+  100%{ opacity: 0;    r: 22; }
+}
+
+/* ─── CTA button shimmer ────────────────────────────────────── */
+.hero-btn-shimmer {
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.14) 50%, transparent 60%);
+  background-size: 200% 100%;
+  animation: btn-shimmer 2.6s linear infinite;
+}
+@keyframes btn-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Typography ─────────────────────────────────────────────── */
+.hero-title {
+  font-size: clamp(2.8rem, 8vw, 7.5rem);
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  color: #0A0A0B;
+}
+
+.section-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #94A3B8;
+}
+
+.section-title {
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: #0A0A0B;
+}
+
+/* ─── Cytoscape host ─────────────────────────────────────────── */
+#cy-host {
+  width: 100%;
+  height: 100%;
+  min-height: 460px;
+}
+
+/* ─── Story mode text ────────────────────────────────────────── */
+.story-word {
+  display: inline-block;
+  will-change: transform, opacity;
+}
+
+/* ─── Code block ─────────────────────────────────────────────── */
+.code-surface {
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  border-radius: 0.875rem;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.8;
+  overflow: auto;
+  tab-size: 2;
+}
+
+.token-key    { color: #1D4ED8; }
+.token-str    { color: #047857; }
+.token-num    { color: #B45309; }
+.token-bool   { color: #7C3AED; }
+.token-null   { color: #DC2626; }
+.token-brace  { color: #374151; }
+
+/* ─── Focus ring ─────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #1D4ED8;
+  outline-offset: 2px;
+}
+
+/* ─── Smooth transitions ─────────────────────────────────────── */
+.transition-lift {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.transition-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06);
+}
+
+/* end of design system */

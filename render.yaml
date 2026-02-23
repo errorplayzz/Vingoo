@@ -1,0 +1,27 @@
+# render.yaml — Render deployment manifest for the Vingoo backend (FastAPI)
+# Docs: https://render.com/docs/infrastructure-as-code
+
+services:
+  - type: web
+    name: vingoo-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free                  # change to "starter" or higher for production
+    autoDeploy: true
+
+    envVars:
+      # Paste your Supabase connection string here (or set it in the Render dashboard)
+      - key: DATABASE_URL
+        sync: false             # filled manually in the dashboard — never commit secrets
+
+      # Comma-separated list of allowed frontend origins.
+      # Set this to your Vercel URL once deployed, e.g.:
+      #   https://vingoo.vercel.app,http://localhost:5173
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # Optional — only needed if you use the AI explanation layer
+      - key: OPENROUTER_API_KEY
+        sync: false

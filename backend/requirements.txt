@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Money Muling Detection System – Python dependencies
+# RIFT 2026 Hackathon
+#
+# Install with:   pip install -r requirements.txt
+# Run with:       uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Web framework
+fastapi>=0.129.0
+
+# ASGI server (with websockets, watchfiles for --reload)
+uvicorn[standard]>=0.29.0
+
+# Data handling (3.x wheel available for Python 3.14)
+pandas>=3.0.0
+
+# Graph algorithms (length_bound in simple_cycles requires >= 3.2)
+networkx>=3.3
+
+# Pydantic v2
+pydantic>=2.7.0
+
+# File upload support (used by FastAPI for UploadFile)
+python-multipart>=0.0.9
+
+# ── Database persistence (Phase 6) ───────────────────────────────────────────
+
+# SQLAlchemy ORM + core
+sqlalchemy>=2.0.0
+
+# PostgreSQL driver (binary wheel — no libpq compile needed)
+psycopg2-binary>=2.9.9
+
+# Load .env files automatically
+python-dotenv>=1.0.0
+
+# HTTP client for AI explanation layer (OpenRouter)
+requests>=2.31.0
