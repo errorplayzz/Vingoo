@@ -344,9 +344,8 @@ export default function UploadAnalysis() {
   const isIdle    = status === "idle";
 
   return (
-    <section id="upload" data-focus-target="upload"
-      className="bg-white border-t border-black/[0.06]"
-      style={{ overflowX: "hidden" }}>
+    <section id="upload" data-focus-target="upload" className="dark-section"
+      style={{ background: "linear-gradient(180deg, #060B18 0%, #07101F 100%)", borderTop: "1px solid rgba(255,255,255,0.05)", overflowX: "hidden" }}>
       <div className="container-wide py-28 md:py-32">
 
         {/* Left-right layout */}

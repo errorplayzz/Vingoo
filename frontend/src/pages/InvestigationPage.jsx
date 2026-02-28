@@ -58,7 +58,7 @@ const SectionFallback = memo(() => (
 // ── Full-page loading state ───────────────────────────────────────────────────
 function LoadingWorkspace({ analysisId }) {
   return (
-    <div className="min-h-screen bg-[#F7F8FA]">
+    <div className="min-h-screen bg-[#070C18] dark-section">
       <Navbar />
       <div className="container-wide pt-32 pb-20">
         <motion.div
@@ -105,7 +105,7 @@ function LoadingWorkspace({ analysisId }) {
 function ErrorWorkspace({ analysisId, message }) {
   const navigate = useNavigate();
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#070C18] dark-section">
       <Navbar />
       <div className="container-wide pt-32 pb-20">
         <motion.div

@@ -275,4 +275,79 @@ body[data-mode="investigation"]::after {
   100% { opacity: 0;    }
 }
 
+/* ─── Dark section content overrides ─────────────────────────── */
+/*  Applied whenever a section/page element carries class="dark-section". */
+/*  Remaps Tailwind's light-theme utilities to dark equivalents.          */
+/*  Two-class specificity (0-2-0) beats a single Tailwind utility (0-1-0) */
+
+/* ── Core backgrounds ─── */
+.dark-section .bg-white         { background-color: rgba(255,255,255,0.038) !important; }
+.dark-section .bg-slate-50      { background-color: rgba(255,255,255,0.025) !important; }
+.dark-section .bg-slate-100     { background-color: rgba(255,255,255,0.050) !important; }
+
+/* ── Core text ─── */
+.dark-section .text-ink         { color: rgba(255,255,255,0.88)  !important; }
+.dark-section .text-muted       { color: rgba(255,255,255,0.52)  !important; }
+.dark-section .text-faint       { color: rgba(255,255,255,0.35)  !important; }
+
+/* ── Borders ─── */
+.dark-section [class*="border-black"] { border-color: rgba(255,255,255,0.07)  !important; }
+.dark-section .divide-y > *           { border-top-color: rgba(255,255,255,0.05) !important; }
+
+/* ── CSS utility classes ─── */
+.dark-section .section-title    { color: rgba(255,255,255,0.92)  !important; }
+.dark-section .section-label    { color: rgba(100,148,255,0.65)  !important; }
+
+/* ── Table hover rows ─── */
+.dark-section .hover\:bg-slate-50:hover { background-color: rgba(255,255,255,0.04) !important; }
+
+/* ── Semantic colour badges (role / score / status / pattern) ─── */
+.dark-section .bg-red-50        { background-color: rgba(239,68,68,0.12)    !important; }
+.dark-section .text-red-800     { color: #fca5a5 !important; }
+.dark-section .text-red-700     { color: #fca5a5 !important; }
+.dark-section .text-red-600     { color: #f87171 !important; }
+.dark-section .border-red-200   { border-color: rgba(239,68,68,0.22)        !important; }
+
+.dark-section .bg-amber-50      { background-color: rgba(245,158,11,0.12)   !important; }
+.dark-section .text-amber-700   { color: #fcd34d  !important; }
+.dark-section .border-amber-200 { border-color: rgba(245,158,11,0.22)       !important; }
+
+.dark-section .bg-blue-50       { background-color: rgba(59,130,246,0.12)   !important; }
+.dark-section .text-blue-700    { color: #93c5fd  !important; }
+.dark-section .border-blue-200  { border-color: rgba(59,130,246,0.22)       !important; }
+
+.dark-section .bg-green-50      { background-color: rgba(34,197,94,0.12)    !important; }
+.dark-section .text-green-700   { color: #86efac  !important; }
+.dark-section .text-green-600   { color: #4ade80  !important; }
+.dark-section .border-green-200 { border-color: rgba(34,197,94,0.22)        !important; }
+
+.dark-section .bg-emerald-50    { background-color: rgba(16,185,129,0.12)   !important; }
+.dark-section .text-emerald-700 { color: #6ee7b7  !important; }
+.dark-section .border-emerald-200{ border-color: rgba(16,185,129,0.22)      !important; }
+
+.dark-section .bg-orange-50     { background-color: rgba(249,115,22,0.12)   !important; }
+.dark-section .text-orange-700  { color: #fdba74  !important; }
+.dark-section .border-orange-200{ border-color: rgba(249,115,22,0.22)       !important; }
+
+.dark-section .bg-purple-50     { background-color: rgba(168,85,247,0.12)   !important; }
+.dark-section .text-purple-700  { color: #c4b5fd  !important; }
+.dark-section .text-violet-700  { color: #c4b5fd  !important; }
+
+/* ── Light panel whitelist (ReviewModal slide-over, form drawers) ─── */
+/*  Explicitly reverses all dark-section overrides inside .light-panel  */
+.dark-section .light-panel.bg-white,
+.dark-section .light-panel .bg-white      { background-color: #ffffff  !important; }
+.dark-section .light-panel .bg-slate-50  { background-color: #f8fafc  !important; }
+.dark-section .light-panel .bg-slate-100 { background-color: #f1f5f9  !important; }
+.dark-section .light-panel .text-ink     { color: #0A0A0B  !important; }
+.dark-section .light-panel .text-muted   { color: #64748B  !important; }
+.dark-section .light-panel .text-faint   { color: #94A3B8  !important; }
+.dark-section .light-panel [class*="border-black"] { border-color: rgba(0,0,0,0.06) !important; }
+.dark-section .light-panel .text-red-800 { color: #991b1b  !important; }
+.dark-section .light-panel .text-red-700 { color: #b91c1c  !important; }
+.dark-section .light-panel .text-red-600 { color: #dc2626  !important; }
+.dark-section .light-panel .bg-red-50    { background-color: #fef2f2  !important; }
+.dark-section .light-panel .bg-red-100   { background-color: #fee2e2  !important; }
+.dark-section .light-panel .border-red-200{ border-color: #fecaca     !important; }
+
 /* end of design system */

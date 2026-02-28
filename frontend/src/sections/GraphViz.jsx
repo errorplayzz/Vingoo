@@ -897,7 +897,7 @@ export default function GraphViz() {
   const handleReset = useCallback(() => {}, []);
 
   return (
-    <section id="graph" data-focus-target="graph" className="bg-white border-t border-black/[0.06] py-24 md:py-32">
+    <section id="graph" data-focus-target="graph" className="dark-section py-24 md:py-32" style={{ background: "linear-gradient(180deg, #07101F 0%, #060B18 100%)", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
       <div className="container-wide">
 
         {/* Header */}

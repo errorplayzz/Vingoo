@@ -8,9 +8,7 @@ import ScrollToTop              from './components/ScrollToTop';
 import ProtectedRoute           from './routes/ProtectedRoute';
 import Navbar              from './components/Navbar';
 import Hero                from './sections/Hero';
-import HowItWorks          from './sections/HowItWorks';
 import UploadAnalysis      from './sections/UploadAnalysis';
-import ProtectPage         from './sections/ProtectPage';
 import Footer              from './sections/Footer';
 import SystemAmbientLayer  from './ui/SystemAmbientLayer';
 import { DemoModeProvider } from './demo/DemoModeProvider';
@@ -18,18 +16,13 @@ import SystemNarration     from './demo/SystemNarration';
 import FocusHighlight      from './demo/FocusHighlight';
 
 // ── Lazy-loaded sections ─────────────────────────────────────────────────────
-// These are below-the-fold or only conditionally rendered.  Each gets its own
-// async chunk so the initial JS bundle stays small.
-//
-// Load order is chosen by scroll position (top → bottom).  ResultsDashboard
-// and GraphViz are the heaviest; InvestigatorDashboard pulls in admin data so
-// it only loads when investigator mode is enabled.
-const ResultsDashboard     = lazy(() => import('./sections/ResultsDashboard'));
+// Below-the-fold sections get their own async chunk so the initial bundle
+// stays small. Load order matches scroll position (top → bottom).
 const StoryMode            = lazy(() => import('./sections/StoryMode'));
+const ResultsDashboard     = lazy(() => import('./sections/ResultsDashboard'));
 const GraphViz             = lazy(() => import('./sections/GraphViz'));
-const IntelligenceExport   = lazy(() => import('./sections/IntelligenceExport'));
-const CitizenProtection    = lazy(() => import('./sections/CitizenProtection'));
-const InvestigatorDashboard = lazy(() => import('./sections/InvestigatorDashboard'));
+const SystemCapabilities   = lazy(() => import('./sections/SystemCapabilities'));
+const FinalCTA             = lazy(() => import('./sections/FinalCTA'));
 
 // ── Route-level page chunks ──────────────────────────────────────────────────
 const InvestigationPage    = lazy(() => import('./pages/InvestigationPage'));
@@ -44,21 +37,22 @@ const SectionFallback = memo(() => (
 // ── Landing page (the original single-scroll experience) ────────────────────
 function ScrollHome() {
   return (
-    <div className="bg-white font-sans">
+    <div className="bg-[#060B18] font-sans">
       <Navbar />
       <main>
-        {/* Eager — above the fold + small */}
+        {/* Eager — above the fold */}
         <Hero />
-        <HowItWorks />
-        <UploadAnalysis />
 
-        {/* Lazy — rendered only after main bundle hydrates */}
-        <Suspense fallback={<SectionFallback />}>
-          <ResultsDashboard />
-        </Suspense>
-
+        {/* Investigation story — parallax scroll */}
         <Suspense fallback={<SectionFallback />}>
           <StoryMode />
+        </Suspense>
+
+        {/* Core upload + results */}
+        <UploadAnalysis />
+
+        <Suspense fallback={<SectionFallback />}>
+          <ResultsDashboard />
         </Suspense>
 
         {/* GraphViz loads the entire D3 bundle — isolated chunk */}
@@ -66,20 +60,15 @@ function ScrollHome() {
           <GraphViz />
         </Suspense>
 
+        {/* System capabilities — live data from /system-capabilities */}
         <Suspense fallback={<SectionFallback />}>
-          <IntelligenceExport />
+          <SystemCapabilities />
         </Suspense>
 
+        {/* Final CTA */}
         <Suspense fallback={<SectionFallback />}>
-          <CitizenProtection />
+          <FinalCTA />
         </Suspense>
-
-        {/* Investigator panel — only loads JS when mode is toggled on */}
-        <Suspense fallback={null}>
-          <InvestigatorDashboard />
-        </Suspense>
-
-        <ProtectPage />
       </main>
       <Footer />
     </div>
@@ -135,7 +124,7 @@ function App() {
           />
 
           {/* ── Admin dashboard ───────────────────────────────────── */}
-          {/* Guarded — redirects to /login if not authenticated.     */}}
+          {/* Guarded — redirects to /login if not authenticated.     */}
           <Route
             path="/admin"
             element={

@@ -329,7 +329,7 @@ function ReviewModal({ account, onClose, onSubmit }) {
 
       {/* Slide-over panel */}
       <motion.div
-        className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-[420px] bg-white shadow-2xl flex flex-col"
+        className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-[420px] bg-white shadow-2xl flex flex-col light-panel"
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
@@ -598,7 +598,7 @@ function AccountsTable({ result, investigatorMode, onRingClick, highlightedRingI
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={investigatorMode ? 6 : 5}
+                <td colSpan={investigatorMode ? 7 : 6}
                     className="text-center text-[13px] text-faint py-10 px-5">
                   No accounts match this filter.
                 </td>
@@ -667,6 +667,10 @@ function AccountsTable({ result, investigatorMode, onRingClick, highlightedRingI
                         ) : (
                           <span className="text-faint text-[11px]">â€”</span>
                         )}
+                      </td>
+                      {/* Role */}
+                      <td className="px-4 py-3.5">
+                        <RoleBadge role={acc.financial_role} />
                       </td>
                       {/* Review action */}
                       <td className="px-4 py-3.5" onClick={(ev) => ev.stopPropagation()}>
@@ -1002,7 +1006,7 @@ export default function ResultsDashboard() {
   if (status !== "done" || !result) return null;
 
   return (
-    <section id="results" className="bg-[#F7F8FA] border-t border-black/[0.06]"
+    <section id="results" className="dark-section" style={{ background: "#07101F", borderTop: "1px solid rgba(255,255,255,0.05)" }}
              style={{ overflowX: "hidden" }}>
       <div className="container-wide py-20 md:py-28">
 

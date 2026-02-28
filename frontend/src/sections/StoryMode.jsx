@@ -37,15 +37,15 @@ function CycleDiagram({ scrollYProgress, start, end }) {
     <motion.div className="w-full max-w-sm mx-auto" style={{ opacity }}>
       {/* Score badge */}
       <motion.div
-        className="mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-black/[0.08] bg-white"
-        style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        className="mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full"
+        style={{ background: "rgba(29,78,216,0.12)", border: "1px solid rgba(59,130,246,0.22)" }}
         initial={{ opacity: 0, y: 8 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.5, ease: EASE }}
       >
         <div className="w-2 h-2 rounded-full bg-red-500" />
-        <span className="text-[12px] font-bold text-ink">Risk Score: 94 / 100</span>
+        <span className="text-[12px] font-bold" style={{ color: "rgba(255,255,255,0.80)" }}>Risk Score: 94 / 100</span>
       </motion.div>
 
       <svg viewBox="0 0 280 200" className="w-full h-40" xmlns="http://www.w3.org/2000/svg">
@@ -88,8 +88,8 @@ function CycleDiagram({ scrollYProgress, start, end }) {
       {/* Metadata chips */}
       <div className="flex flex-wrap justify-center gap-2 mt-2">
         {["4 accounts", "6 transfers", "168-hour window", "Closed loop"].map((t) => (
-          <span key={t} className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white border border-black/[0.08] text-muted"
-            style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+          <span key={t} className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
+            style={{ background: "rgba(29,78,216,0.12)", border: "1px solid rgba(59,130,246,0.18)", color: "rgba(255,255,255,0.55)" }}>
             {t}
           </span>
         ))}
@@ -122,28 +122,29 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
     >
       {/* Phase badge */}
       <motion.div
-        className="mb-6 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-black/[0.08] bg-white/80 backdrop-blur-sm"
-        style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.06)" }}
+        className="mb-6 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full"
+        style={{ background: "rgba(29,78,216,0.12)", border: "1px solid rgba(59,130,246,0.22)", backdropFilter: "blur(12px)" }}
       >
-        <span className="text-[10px] font-bold text-accent tracking-widest uppercase">
+        <span className="text-[10px] font-bold tracking-widest uppercase" style={{ color: "rgba(147,197,253,0.80)" }}>
           {beat.phase}
         </span>
       </motion.div>
 
       {/* Headline */}
       <h2
-        className="font-black text-ink mb-5 max-w-2xl"
+        className="font-black mb-5 max-w-2xl"
         style={{
           fontSize: "clamp(2.2rem, 6vw, 5rem)",
           lineHeight: "1.0",
           letterSpacing: "-0.03em",
+          color: "rgba(255,255,255,0.94)",
         }}
       >
         {beat.headline}
       </h2>
 
       {/* Sub */}
-      <p className="text-muted text-lg md:text-xl max-w-xl leading-relaxed mb-4">
+      <p className="text-lg md:text-xl max-w-xl leading-relaxed mb-4" style={{ color: "rgba(255,255,255,0.50)" }}>
         {beat.sub}
       </p>
 
@@ -151,8 +152,8 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
       {index === 0 && (
         <div className="mt-2 flex items-baseline gap-2">
           <span
-            className="font-black text-ink tabular-nums"
-            style={{ fontSize: "clamp(2.5rem, 6vw, 4rem)", letterSpacing: "-0.04em" }}
+            className="font-black tabular-nums"
+            style={{ fontSize: "clamp(2.5rem, 6vw, 4rem)", letterSpacing: "-0.04em", color: "rgba(255,255,255,0.94)" }}
           >
             <CounterDisplay
               scrollYProgress={scrollYProgress}
@@ -160,7 +161,7 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
               end={mid - 0.05}
             />
           </span>
-          <span className="text-muted text-xl font-semibold">transactions</span>
+          <span className="text-xl font-semibold" style={{ color: "rgba(255,255,255,0.40)" }}>transactions</span>
         </div>
       )}
 
@@ -173,7 +174,7 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
 
       {/* Detail */}
       {beat.detail && (
-        <p className="text-faint text-sm max-w-sm leading-relaxed mt-3">
+        <p className="text-sm max-w-sm leading-relaxed mt-3" style={{ color: "rgba(255,255,255,0.28)" }}>
           {beat.detail}
         </p>
       )}
@@ -185,7 +186,7 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
             style={{
               width: j === index ? 20 : 5,
               height: 5,
-              background: j === index ? "#0A0A0B" : "rgba(0,0,0,0.15)",
+              background: j === index ? "rgba(255,255,255,0.90)" : "rgba(255,255,255,0.15)",
             }}
           />
         ))}
@@ -198,38 +199,45 @@ const BeatPanel = memo(function BeatPanel({ beat, index, total, scrollYProgress 
 const BEATS = [
   {
     chapter: "01",
-    phase:   "01 / Upload",
-    headline: "A file arrives.",
-    sub: "Raw transaction data. Flat rows. No visible structure.",
-    detail: "The engine receives sender, receiver, amount, and timestamp.",
+    phase:   "01 / INGEST",
+    headline: "Data received.",
+    sub: "9,613 raw transaction records. Flat CSV. No structure visible yet.",
+    detail: "Sender · Receiver · Amount · Timestamp. The engine takes over.",
   },
   {
     chapter: "02",
-    phase:   "02 / Map",
-    headline: "The graph takes shape.",
-    sub: "Every transfer becomes a directed edge. 847 unique nodes surface.",
-    detail: "Cyclic structures emerge where none were visible in the table.",
+    phase:   "02 / MAP",
+    headline: "The network emerges.",
+    sub: "Every transfer becomes a directed edge. 847 unique nodes surface from the noise.",
+    detail: "Graph constructed. Topology exposes what tables hide.",
   },
   {
     chapter: "03",
-    phase:   "03 / Detect",
-    headline: "Cycle detected.",
-    sub: "A closed money loop. Funds routing through four accounts.",
+    phase:   "03 / DETECT",
+    headline: "Pattern: Cycle detected.",
+    sub: "A closed money loop. Funds cycling through four coordinated accounts.",
     detail: null,
   },
   {
     chapter: "04",
-    phase:   "04 / Score",
-    headline: "Suspicion scored.",
-    sub: "Composite risk: 94 of 100. Seven signals aligned in a pattern.",
-    detail: "Centrality  velocity  flow imbalance  pattern participation.",
+    phase:   "04 / CLASSIFY",
+    headline: "Roles assigned.",
+    sub: "Controller. Mule. Possible Victim. Each account classified by financial behaviour.",
+    detail: "Flow imbalance · graph centrality · pattern participation → role probability.",
   },
   {
     chapter: "05",
-    phase:   "05 / Export",
-    headline: "Intelligence ready.",
-    sub: "Case-ready JSON structured for law enforcement review.",
-    detail: "Full audit trail  source data traceable  timestamp verified.",
+    phase:   "05 / EXPLAIN",
+    headline: "AI explains.",
+    sub: "Coordinated layering scheme. High confidence. Investigator-ready narrative generated.",
+    detail: "LLM translates graph signals into court-ready intelligence language.",
+  },
+  {
+    chapter: "06",
+    phase:   "06 / SEAL",
+    headline: "Evidence sealed.",
+    sub: "SHA-256 integrity seal applied. Tamper-evident. Every detail locked at analysis time.",
+    detail: "sha256:a3f4d1e7b2c09f8a… — Verifiable at /verify/{id}",
   },
 ];
 
@@ -251,7 +259,7 @@ const ChapterTimeline = memo(function ChapterTimeline({ chapters, activeIndex })
               <motion.div
                 className="w-px"
                 style={{ height: 28 }}
-                animate={{ background: isPast || isActive ? 'rgba(29,78,216,0.45)' : 'rgba(0,0,0,0.12)' }}
+                animate={{ background: isPast || isActive ? 'rgba(59,130,246,0.55)' : 'rgba(255,255,255,0.12)' }}
                 transition={{ duration: 0.4 }}
               />
             )}
@@ -277,8 +285,8 @@ const ChapterTimeline = memo(function ChapterTimeline({ chapters, activeIndex })
               <motion.div
                 className="w-2.5 h-2.5 rounded-full border-2"
                 animate={{
-                  backgroundColor: isActive ? '#1D4ED8' : isPast ? 'rgba(29,78,216,0.35)' : 'transparent',
-                  borderColor:     isActive ? '#1D4ED8' : isPast ? 'rgba(29,78,216,0.35)' : 'rgba(0,0,0,0.20)',
+                  backgroundColor: isActive ? '#3B82F6' : isPast ? 'rgba(59,130,246,0.40)' : 'transparent',
+                  borderColor:     isActive ? '#3B82F6' : isPast ? 'rgba(59,130,246,0.40)' : 'rgba(255,255,255,0.20)',
                 }}
                 transition={{ duration: 0.35 }}
               />
@@ -324,8 +332,8 @@ export default function StoryMode() {
     <section
       ref={containerRef}
       data-focus-target="patterns"
-      className="relative border-t border-black/[0.06]"
-      style={{ height: `${(n + 0.6) * 100}vh`, background: "#F7F8FA" }}
+      className="relative border-t border-white/[0.05]"
+      style={{ height: `${(n + 0.6) * 100}vh`, background: "#060B18" }}
     >
       {/* Sticky viewport */}
       <div className="sticky top-0 h-screen flex flex-col items-center justify-center overflow-hidden">
@@ -334,7 +342,7 @@ export default function StoryMode() {
         <div
           className="absolute inset-0 pointer-events-none opacity-60"
           style={{
-            backgroundImage: "radial-gradient(circle, #CBD5E1 1px, transparent 1px)",
+            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px)",
             backgroundSize: "32px 32px",
           }}
         />
@@ -343,7 +351,7 @@ export default function StoryMode() {
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: "radial-gradient(ellipse 80% 80% at 50% 50%, transparent 40%, #F7F8FA 100%)",
+            background: "radial-gradient(ellipse 80% 80% at 50% 50%, transparent 40%, #060B18 100%)",
           }}
         />
 

@@ -1,5 +1,6 @@
 ﻿import { useRef, useEffect, useState } from "react";
 import { motion, useScroll, useTransform, useMotionValue, useSpring } from "framer-motion";
+import { API_BASE } from "../api/client";
 
 /* --- Graph data ----------------------------------------------------------- */
 const NODES_HERO = [
@@ -275,6 +276,12 @@ function StatDivider() {
 /* --- Hero ----------------------------------------------------------------- */
 export default function Hero() {
   const heroRef = useRef(null);
+  const [healthOk, setHealthOk] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/health`).then(r => setHealthOk(r.ok)).catch(() => setHealthOk(false));
+  }, []);
+
   const mouseX = useMotionValue(0.5);
   const mouseY = useMotionValue(0.5);
   const smoothX = useSpring(mouseX, { stiffness: 55, damping: 20 });
@@ -360,6 +367,28 @@ export default function Hero() {
               </div>
             </motion.div>
 
+            {/* Health indicator */}
+            {healthOk !== null && (
+              <motion.div
+                className="inline-flex items-center gap-2 mt-3 mb-2 px-3 py-1.5 rounded-full"
+                style={{
+                  background: healthOk ? "rgba(16,185,129,0.10)" : "rgba(239,68,68,0.10)",
+                  border: `1px solid ${healthOk ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`,
+                }}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.9 }}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${healthOk ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`}
+                />
+                <span className="text-[10px] font-semibold tracking-widest uppercase"
+                  style={{ color: healthOk ? "rgba(52,211,153,0.85)" : "rgba(248,113,113,0.85)" }}>
+                  {healthOk ? "API Operational" : "API Unreachable"}
+                </span>
+              </motion.div>
+            )}
+
             {/* Headline */}
             <motion.h1
               className="hero-title-dark mb-7"
@@ -367,9 +396,9 @@ export default function Hero() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.85, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
             >
-              Every
-              <br />Transaction
-              <br /><span className="hero-gradient-text">Tells a Story.</span>
+              Upload transactions.
+              <br />Reveal hidden
+              <br /><span className="hero-gradient-text">crime networks.</span>
             </motion.h1>
 
             {/* Body */}
@@ -380,8 +409,7 @@ export default function Hero() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.26, ease: [0.22, 1, 0.36, 1] }}
             >
-              Graph-based detection engine that unravels money muling networks —
-              cycles, smurfing, shell chains — in real time.
+              Graph-based detection engine. Upload a CSV — cycles, smurfing, and shell chains surface in real time.
             </motion.p>
 
             {/* CTAs */}
@@ -410,7 +438,7 @@ export default function Hero() {
               </motion.a>
 
               <motion.a
-                href="#how"
+                href="#capabilities"
                 className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl text-sm font-semibold"
                 style={{
                   background: "rgba(255,255,255,0.055)",
@@ -426,7 +454,7 @@ export default function Hero() {
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: "spring", stiffness: 420, damping: 26 }}
               >
-                How It Works
+                View Capabilities
               </motion.a>
             </motion.div>
 
