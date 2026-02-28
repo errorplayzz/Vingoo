@@ -8,10 +8,15 @@
  *     â€£ Investigator mode: ring filter, all sorting
  *  3. Detected Fraud Rings â€” expandable cards, click â†’ highlight in graph
  */
-import { useState, useMemo, useCallback, Fragment } from "react";
+import { useState, useMemo, useCallback, Fragment, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAnalysis } from "../context/AnalysisContext";
 import { useToast } from "../context/ToastContext";
+import {
+  INVESTIGATION_STATE,
+  isStateAtLeast,
+  useInvestigationState,
+} from "../context/InvestigationContext";
 import { submitSecondChance } from "../api/client";
 
 const EASE = [0.4, 0, 0.2, 1];
@@ -993,6 +998,13 @@ function FraudRingsSection({ result, highlightedRingId, onRingClick }) {
 
 export default function ResultsDashboard() {
   const { status, result, investigatorMode, highlightedRingId, setHighlightedRingId } = useAnalysis();
+  const { investigationState, setInvestigationState } = useInvestigationState();
+
+  useEffect(() => {
+    if (status === "done" && result) {
+      setInvestigationState(INVESTIGATION_STATE.INTELLIGENCE_READY);
+    }
+  }, [status, result, setInvestigationState]);
 
   const handleRingClick = useCallback((ringId) => {
     setHighlightedRingId(ringId);
@@ -1004,11 +1016,18 @@ export default function ResultsDashboard() {
   }, [setHighlightedRingId]);
 
   if (status !== "done" || !result) return null;
+  if (!isStateAtLeast(investigationState, INVESTIGATION_STATE.ANALYZING)) return null;
 
   return (
-    <section id="results" className="dark-section" style={{ background: "#07101F", borderTop: "1px solid rgba(255,255,255,0.05)" }}
-             style={{ overflowX: "hidden" }}>
-      <div className="container-wide py-20 md:py-28">
+    <motion.section
+      id="results"
+      className="bg-white border-t border-slate-200"
+      style={{ overflowX: "hidden" }}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: EASE }}
+    >
+      <div className="container-wide py-24">
 
         {/* Section header */}
         <motion.div
@@ -1073,6 +1092,6 @@ export default function ResultsDashboard() {
         />
 
       </div>
-    </section>
+    </motion.section>
   );
 }

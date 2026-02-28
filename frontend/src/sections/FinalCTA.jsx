@@ -1,8 +1,16 @@
 import { motion } from "framer-motion";
+import {
+  INVESTIGATION_STATE,
+  isStateAtLeast,
+  useInvestigationState,
+} from "../context/InvestigationContext";
 
 const EASE = [0.22, 1, 0.36, 1];
 
 export default function FinalCTA() {
+  const { investigationState } = useInvestigationState();
+  const canRunInvestigation = isStateAtLeast(investigationState, INVESTIGATION_STATE.INTELLIGENCE_READY);
+
   return (
     <section
       id="cta"
@@ -67,17 +75,29 @@ export default function FinalCTA() {
         >
           <motion.a
             href="#upload"
-            className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl text-[15px] font-bold text-white relative overflow-hidden"
+            aria-disabled={!canRunInvestigation}
+            onClick={(e) => {
+              if (!canRunInvestigation) e.preventDefault();
+            }}
+            className={`inline-flex items-center gap-3 px-8 py-4 rounded-2xl text-[15px] font-bold relative overflow-hidden transition-all duration-300 ${
+              canRunInvestigation
+                ? "text-white"
+                : "text-slate-500 cursor-not-allowed"
+            }`}
             style={{
-              background: "linear-gradient(135deg, #1D4ED8 0%, #2563EB 55%, #3B82F6 100%)",
-              boxShadow: "0 6px 36px rgba(29,78,216,0.50), inset 0 1px 0 rgba(255,255,255,0.18)",
+              background: canRunInvestigation
+                ? "linear-gradient(135deg, #1D4ED8 0%, #2563EB 55%, #3B82F6 100%)"
+                : "#E2E8F0",
+              boxShadow: canRunInvestigation
+                ? "0 6px 36px rgba(29,78,216,0.50), inset 0 1px 0 rgba(255,255,255,0.18)"
+                : "none",
             }}
-            whileHover={{
-              scale: 1.06,
-              y: -3,
+            whileHover={canRunInvestigation ? {
+              scale: 1.03,
+              y: -2,
               boxShadow: "0 14px 52px rgba(29,78,216,0.65), inset 0 1px 0 rgba(255,255,255,0.22)",
-            }}
-            whileTap={{ scale: 0.97 }}
+            } : {}}
+            whileTap={canRunInvestigation ? { scale: 0.98 } : {}}
             transition={{ type: "spring", stiffness: 400, damping: 24 }}
           >
             <span className="relative z-10">Run a Live Investigation</span>
@@ -85,15 +105,17 @@ export default function FinalCTA() {
               <path d="M3.5 8h9M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             {/* Shimmer */}
-            <motion.div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.12) 50%, transparent 60%)",
-                backgroundSize: "200% 100%",
-              }}
-              animate={{ backgroundPositionX: ["200%", "-100%"] }}
-              transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut" }}
-            />
+            {canRunInvestigation && (
+              <motion.div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.12) 50%, transparent 60%)",
+                  backgroundSize: "200% 100%",
+                }}
+                animate={{ backgroundPositionX: ["200%", "-100%"] }}
+                transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut" }}
+              />
+            )}
           </motion.a>
         </motion.div>
 

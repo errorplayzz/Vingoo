@@ -9,6 +9,11 @@ import { useInView } from "react-intersection-observer";
 import { useNavigate }  from "react-router-dom";
 import { useAnalysis } from "../context/AnalysisContext";
 import { useToast }    from "../context/ToastContext";
+import {
+  INVESTIGATION_STATE,
+  isStateAtLeast,
+  useInvestigationState,
+} from "../context/InvestigationContext";
 import { useInvestigationPhase, PHASE, PHASE_LABELS } from "../intelligence/useInvestigationPhase";
 import ScanSweep         from "../intelligence/ScanSweep";
 import EventNotification from "../intelligence/EventNotification";
@@ -307,6 +312,7 @@ function ResultsSummary({ result }) {
 /* ── Main section ──────────────────────────────────────────────────────────── */
 export default function UploadAnalysis() {
   const { status, progress, result, error, fileName, runAnalysis, reset } = useAnalysis();
+  const { investigationState, setInvestigationState } = useInvestigationState();
   const toast     = useToast();
   const navigate  = useNavigate();
   const { phase, sseProgress } = useInvestigationPhase();
@@ -315,9 +321,30 @@ export default function UploadAnalysis() {
 
   useEffect(() => {
     if (status === 'done' && result?.analysis_id) {
+      setInvestigationState(INVESTIGATION_STATE.INTELLIGENCE_READY);
       navigate(`/investigation/${result.analysis_id}`);
     }
-  }, [status, result?.analysis_id, navigate]);
+  }, [status, result?.analysis_id, navigate, setInvestigationState]);
+
+  useEffect(() => {
+    if (status === "idle" && investigationState !== INVESTIGATION_STATE.IDLE) {
+      return;
+    }
+
+    if (status === "uploading" && !isStateAtLeast(investigationState, INVESTIGATION_STATE.DATA_UPLOADED)) {
+      setInvestigationState(INVESTIGATION_STATE.DATA_UPLOADED);
+      return;
+    }
+
+    if (status === "analyzing" && !isStateAtLeast(investigationState, INVESTIGATION_STATE.ANALYZING)) {
+      setInvestigationState(INVESTIGATION_STATE.ANALYZING);
+      return;
+    }
+
+    if (status === "done" && !isStateAtLeast(investigationState, INVESTIGATION_STATE.INTELLIGENCE_READY)) {
+      setInvestigationState(INVESTIGATION_STATE.INTELLIGENCE_READY);
+    }
+  }, [status, investigationState, setInvestigationState]);
 
   const handleFile = useCallback(async (file) => {
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -332,7 +359,8 @@ export default function UploadAnalysis() {
 
   const handleReset = useCallback(() => {
     reset();
-  }, [reset]);
+    setInvestigationState(INVESTIGATION_STATE.IDLE);
+  }, [reset, setInvestigationState]);
 
   const isLoading = status === "uploading" || status === "analyzing";
   const isDone    = status === "done";

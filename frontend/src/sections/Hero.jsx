@@ -1,7 +1,10 @@
 ﻿import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { API_BASE } from "../api/client";
-import { useAnalysisState } from "../context/AnalysisContext";
+import {
+  INVESTIGATION_STATE,
+  useInvestigationState,
+} from "../context/InvestigationContext";
 
 const EASE = [0.22, 1, 0.36, 1];
 
@@ -150,11 +153,20 @@ function StatDivider() {
 /* --- Hero ----------------------------------------------------------------- */
 export default function Hero() {
   const [healthOk, setHealthOk] = useState(null);
-  const { status: analysisStatus } = useAnalysisState();
+  const { investigationState } = useInvestigationState();
 
   useEffect(() => {
     fetch(`${API_BASE}/health`).then(r => setHealthOk(r.ok)).catch(() => setHealthOk(false));
   }, []);
+
+  const systemLabel =
+    investigationState === INVESTIGATION_STATE.DATA_UPLOADED
+      ? "DATA RECEIVED"
+      : investigationState === INVESTIGATION_STATE.ANALYZING
+      ? "ANALYSIS RUNNING"
+      : investigationState === INVESTIGATION_STATE.INTELLIGENCE_READY
+      ? "INTELLIGENCE READY"
+      : "SYSTEM READY";
 
   return (
     <section
@@ -283,21 +295,16 @@ export default function Hero() {
               <span
                 className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                 style={{
-                  background: analysisStatus === 'uploading' || analysisStatus === 'analyzing'
-                    ? '#F59E0B'
-                    : analysisStatus === 'error'
-                    ? '#EF4444'
-                    : '#10B981',
+                  background:
+                    investigationState === INVESTIGATION_STATE.ANALYZING
+                      ? "#F59E0B"
+                      : investigationState === INVESTIGATION_STATE.INTELLIGENCE_READY
+                      ? "#10B981"
+                      : "#1D4ED8",
                 }}
               />
               <span className="text-[10px] font-mono font-medium tracking-[0.14em] uppercase text-muted select-none">
-                {analysisStatus === 'uploading' || analysisStatus === 'analyzing'
-                  ? 'Processing — engine active'
-                  : analysisStatus === 'done'
-                  ? 'Analysis complete'
-                  : analysisStatus === 'error'
-                  ? 'System alert'
-                  : 'System ready · awaiting data'}
+                {systemLabel}
               </span>
             </motion.div>
 

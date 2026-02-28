@@ -6,6 +6,7 @@ import { ToastProvider }        from './context/ToastContext';
 import { useSseInvalidation }   from './hooks/useSseInvalidation';
 import ScrollToTop              from './components/ScrollToTop';
 import ProtectedRoute           from './routes/ProtectedRoute';
+import { InvestigationProvider } from './context/InvestigationContext';
 import Navbar              from './components/Navbar';
 import Hero                from './sections/Hero';
 import UploadAnalysis      from './sections/UploadAnalysis';
@@ -85,13 +86,14 @@ function App() {
       <ToastProvider>
         {/* Global ambient layer — renders behind all content, no interaction cost */}
         <SystemAmbientLayer />
-        <DemoModeProvider>
-        <AnalysisProvider>
-          {/* Scroll to top whenever the route pathname changes */}
-          <ScrollToTop />
-          {/* Demo Mode: guided narration + focus highlights (no-op when demo=false) */}
-          <SystemNarration />
-          <FocusHighlight />
+        <InvestigationProvider>
+          <DemoModeProvider>
+          <AnalysisProvider>
+            {/* Scroll to top whenever the route pathname changes */}
+            <ScrollToTop />
+            {/* Demo Mode: guided narration + focus highlights (no-op when demo=false) */}
+            <SystemNarration />
+            <FocusHighlight />
 
         <Routes>
           {/* ── Landing page ──────────────────────────────────────── */}
@@ -137,8 +139,9 @@ function App() {
           {/* ── Catch-all ─────────────────────────────────────────── */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        </AnalysisProvider>
-        </DemoModeProvider>
+          </AnalysisProvider>
+          </DemoModeProvider>
+        </InvestigationProvider>
       </ToastProvider>
     </AuthProvider>
   );

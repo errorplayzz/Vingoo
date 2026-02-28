@@ -4,6 +4,11 @@
 import * as d3 from "d3";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAnalysis } from "../context/AnalysisContext";
+import {
+  INVESTIGATION_STATE,
+  isStateAtLeast,
+  useInvestigationState,
+} from "../context/InvestigationContext";
 import { useInView } from "react-intersection-observer";
 
 /*  Design tokens  */
@@ -847,9 +852,17 @@ export default function GraphViz() {
   const { nodes, edges }      = useGraphData();
   const patterns              = usePatterns();
   const { highlightedRingId, result } = useAnalysis();
+  const { investigationState, setInvestigationState } = useInvestigationState();
 
   // ── Scroll-entry cinematic darkening ────────────────────────────────────
   const [sectionRef, sectionInView] = useInView({ threshold: 0.08, triggerOnce: true });
+  const graphActive = isStateAtLeast(investigationState, INVESTIGATION_STATE.GRAPH_BUILDING);
+
+  useEffect(() => {
+    if (sectionInView && !isStateAtLeast(investigationState, INVESTIGATION_STATE.GRAPH_BUILDING)) {
+      setInvestigationState(INVESTIGATION_STATE.GRAPH_BUILDING);
+    }
+  }, [sectionInView, investigationState, setInvestigationState]);
 
   // ── Blur / reveal ──────────────────────────────────────────────────────────
   // Demo mode (no result): graph is always visible.
@@ -918,9 +931,10 @@ export default function GraphViz() {
         <div className="flex flex-col lg:flex-row gap-8 items-start">
 
           {/* Graph */}
-          <motion.div className="flex-1 min-w-0"
-            initial={{ opacity:0, y:32 }}
-            animate={{ opacity:1, y:0  }}
+          <motion.div className="flex-1 min-w-0 transition-opacity duration-500"
+            style={{ opacity: graphActive ? 1 : 0.5 }}
+            initial={{ y:32 }}
+            animate={{ y:0  }}
             transition={{ duration:0.8, delay:0.15, ease:[0.22,1,0.36,1] }}>
 
             {/* Legend bar */}
