@@ -6,11 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import { useAnalysisState } from '../context/AnalysisContext';
 
 const links = [
-  { label: "How It Works", href: "#how" },
-  { label: "Upload",       href: "#upload" },
-  { label: "Detection",    href: "#graph" },
-  { label: "Intelligence", href: "#export" },
-  { label: "Protect",      href: "#protect" },
+  { label: "Upload",        href: "#upload" },
+  { label: "Graph",         href: "#graph" },
+  { label: "Capabilities",  href: "#capabilities" },
 ];
 
 export default function Navbar() {
@@ -62,7 +60,7 @@ export default function Navbar() {
       <motion.header
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
           scrolled
-            ? "bg-white/92 backdrop-blur-xl border-b border-black/[0.06] shadow-[0_1px_16px_rgba(0,0,0,0.06)]"
+            ? "bg-[#060B18]/95 backdrop-blur-xl border-b border-white/[0.07] shadow-[0_1px_20px_rgba(0,0,0,0.45)]"
             : "bg-transparent border-b border-transparent"
         }`}
         initial={{ y: -80 }}
@@ -84,7 +82,7 @@ export default function Navbar() {
                 <line x1="7" y1="11" x2="3" y2="7"  stroke="white" strokeWidth="1" strokeOpacity="0.7" />
               </svg>
             </div>
-            <span className={`text-[15px] font-bold tracking-tight transition-colors duration-500 ${scrolled ? "text-ink" : "text-white"}`}>
+            <span className={`text-[15px] font-bold tracking-tight transition-colors duration-500 ${scrolled ? "text-white" : "text-white"}`}>
               Vingoo
             </span>
           </a>
@@ -97,7 +95,7 @@ export default function Navbar() {
                 href={l.href}
                 className={`text-[13px] font-medium transition-colors duration-300 ${
                   scrolled
-                    ? "text-muted hover:text-ink"
+                    ? "text-white/55 hover:text-white"
                     : "text-white/55 hover:text-white"
                 }`}
               >
@@ -117,16 +115,14 @@ export default function Navbar() {
               </div>
               {/* Live clock */}
               <span
-                className={`text-[9.5px] font-mono tabular-nums tracking-wider select-none ${
-                  scrolled ? 'text-slate-400' : 'text-white/40'
-                }`}
+                className={`text-[9.5px] font-mono tabular-nums tracking-wider select-none text-white/40`}
               >
                 {clock}
               </span>
             </div>
 
             {/* visual separator */}
-            <div className={`w-px h-4 ${scrolled ? 'bg-black/10' : 'bg-white/15'}`} />
+            <div className="w-px h-4 bg-white/15" />
             <StatusBadge />
 
             {/* ── Auth section ─────────────────────────────────────── */}
@@ -135,11 +131,7 @@ export default function Navbar() {
               <div className="flex items-center gap-2">
                 <Link
                   to="/admin"
-                  className={`flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
-                    scrolled
-                      ? "bg-accent/[0.07] text-accent border-accent/20 hover:bg-accent/[0.12]"
-                      : "bg-white/[0.10] text-white/80 border-white/[0.15] hover:bg-white/[0.16]"
-                  }`}
+                  className={`flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 bg-white/[0.10] text-white/80 border-white/[0.15] hover:bg-white/[0.16]`}
                   title="Open investigator console"
                 >
                   <span className="text-[8px] font-mono opacity-55 tracking-widest mr-0.5">ANALYST</span>
@@ -148,11 +140,7 @@ export default function Navbar() {
                 </Link>
                 <button
                   onClick={logout}
-                  className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
-                    scrolled
-                      ? "bg-white text-muted border-black/[0.10] hover:border-red-300 hover:text-red-600"
-                      : "bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90"
-                  }`}
+                  className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90`}
                   title="Sign out"
                 >
                   Sign Out
@@ -162,11 +150,7 @@ export default function Navbar() {
               /* Public: subtle sign-in link */
               <Link
                 to="/login"
-                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 ${
-                  scrolled
-                    ? "bg-white text-muted border-black/[0.10] hover:border-accent/40 hover:text-ink"
-                    : "bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90"
-                }`}
+                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90`}
                 title="Sign in to investigator console"
               >
                 Sign In
@@ -201,7 +185,7 @@ export default function Navbar() {
             aria-label="Toggle menu"
           >
             {["w-5","w-4","w-5"].map((w, i) => (
-              <span key={i} className={`block h-[1.5px] transition-all duration-300 ${scrolled ? "bg-ink" : "bg-white/80"} ${
+              <span key={i} className={`block h-[1.5px] transition-all duration-300 bg-white/80 ${
                 i === 0 && menuOpen ? "w-5 rotate-45 translate-y-[5px]" :
                 i === 1 && menuOpen ? "opacity-0 w-0" :
                 i === 2 && menuOpen ? "w-5 -rotate-45 -translate-y-[5px]" : w
@@ -215,7 +199,7 @@ export default function Navbar() {
       <AnimatePresence>
         {menuOpen && (
           <motion.div
-            className="fixed inset-0 z-40 bg-white pt-16 flex flex-col px-6 pb-8"
+            className="fixed inset-0 z-40 bg-[#060B18] pt-16 flex flex-col px-6 pb-8"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
@@ -227,7 +211,7 @@ export default function Navbar() {
                   key={l.label}
                   href={l.href}
                   onClick={() => setMenuOpen(false)}
-                  className="text-2xl font-semibold text-ink py-3 border-b border-black/[0.06]"
+                  className="text-2xl font-semibold text-white/80 py-3 border-b border-white/[0.07]"
                   initial={{ opacity: 0, x: -16 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.06 }}

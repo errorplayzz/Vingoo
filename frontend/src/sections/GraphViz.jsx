@@ -4,6 +4,7 @@
 import * as d3 from "d3";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAnalysis } from "../context/AnalysisContext";
+import { useInView } from "react-intersection-observer";
 
 /*  Design tokens  */
 const CLR = {
@@ -847,6 +848,9 @@ export default function GraphViz() {
   const patterns              = usePatterns();
   const { highlightedRingId, result } = useAnalysis();
 
+  // ── Scroll-entry cinematic darkening ────────────────────────────────────
+  const [sectionRef, sectionInView] = useInView({ threshold: 0.08, triggerOnce: true });
+
   // ── Blur / reveal ──────────────────────────────────────────────────────────
   // Demo mode (no result): graph is always visible.
   // Analysis mode (result present): graph starts blurred, reveals on scroll.
@@ -897,7 +901,16 @@ export default function GraphViz() {
   const handleReset = useCallback(() => {}, []);
 
   return (
-    <section id="graph" data-focus-target="graph" className="dark-section py-24 md:py-32" style={{ background: "linear-gradient(180deg, #07101F 0%, #060B18 100%)", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+    <section ref={sectionRef} id="graph" data-focus-target="graph" className="dark-section py-24 md:py-32 relative" style={{ background: "linear-gradient(180deg, #07101F 0%, #060B18 100%)", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+
+      {/* Cinematic entry veil — fades out when section enters viewport */}
+      <motion.div
+        className="absolute inset-0 z-30 pointer-events-none"
+        style={{ background: "#040810" }}
+        initial={{ opacity: 0.6 }}
+        animate={{ opacity: sectionInView ? 0 : 0.6 }}
+        transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+      />
       <div className="container-wide">
 
         {/* Header */}

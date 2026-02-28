@@ -12,6 +12,7 @@ import { useToast }    from "../context/ToastContext";
 import { useInvestigationPhase, PHASE, PHASE_LABELS } from "../intelligence/useInvestigationPhase";
 import ScanSweep         from "../intelligence/ScanSweep";
 import EventNotification from "../intelligence/EventNotification";
+import IngestOverlay     from "../components/IngestOverlay";
 
 const EASE = [0.4, 0, 0.2, 1];
 
@@ -314,14 +315,23 @@ export default function UploadAnalysis() {
   // SSE progress supersedes the fake interval when available
   const displayProgress = sseProgress ?? progress;
   const [headerRef, headerInView] = useInView({ triggerOnce: true, threshold: 0.2 });
+  // Cinematic overlay state
+  const [showOverlay, setShowOverlay]   = useState(false);
+  const pendingIdRef                    = useRef(null);
 
-  // Navigate to the permanent investigation workspace as soon as the analysis
-  // is complete and has an analysis_id from the backend.
+  // Show cinematic overlay when analysis completes, then navigate
   useEffect(() => {
     if (status === 'done' && result?.analysis_id) {
-      navigate(`/investigation/${result.analysis_id}`);
+      pendingIdRef.current = result.analysis_id;
+      setShowOverlay(true);
     }
-  }, [status, result?.analysis_id, navigate]);
+  }, [status, result?.analysis_id]);
+
+  const handleOverlayComplete = useCallback(() => {
+    if (pendingIdRef.current) {
+      navigate(`/investigation/${pendingIdRef.current}`);
+    }
+  }, [navigate]);
 
   const handleFile = useCallback(async (file) => {
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -344,8 +354,12 @@ export default function UploadAnalysis() {
   const isIdle    = status === "idle";
 
   return (
-    <section id="upload" data-focus-target="upload" className="dark-section"
-      style={{ background: "linear-gradient(180deg, #060B18 0%, #07101F 100%)", borderTop: "1px solid rgba(255,255,255,0.05)", overflowX: "hidden" }}>
+    <>
+      {/* Cinematic transition overlay — shown before navigating to /investigation/:id */}
+      {showOverlay && <IngestOverlay onComplete={handleOverlayComplete} />}
+
+      <section id="upload" data-focus-target="upload" className="dark-section"
+        style={{ background: "linear-gradient(180deg, #060B18 0%, #07101F 100%)", borderTop: "1px solid rgba(255,255,255,0.05)", overflowX: "hidden" }}>
       <div className="container-wide py-28 md:py-32">
 
         {/* Left-right layout */}
@@ -444,5 +458,6 @@ export default function UploadAnalysis() {
       {/* Phase notifications — show during analysis on this page */}
       {isLoading && <EventNotification phase={phase} />}
     </section>
+    </>
   );
 }

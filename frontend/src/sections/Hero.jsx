@@ -1,6 +1,7 @@
 ﻿import { useRef, useEffect, useState } from "react";
 import { motion, useScroll, useTransform, useMotionValue, useSpring } from "framer-motion";
 import { API_BASE } from "../api/client";
+import { useAnalysisState } from "../context/AnalysisContext";
 
 /* --- Graph data ----------------------------------------------------------- */
 const NODES_HERO = [
@@ -277,6 +278,7 @@ function StatDivider() {
 export default function Hero() {
   const heroRef = useRef(null);
   const [healthOk, setHealthOk] = useState(null);
+  const { status: analysisStatus } = useAnalysisState();
 
   useEffect(() => {
     fetch(`${API_BASE}/health`).then(r => setHealthOk(r.ok)).catch(() => setHealthOk(false));
@@ -409,12 +411,12 @@ export default function Hero() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.26, ease: [0.22, 1, 0.36, 1] }}
             >
-              Graph-based detection engine. Upload a CSV — cycles, smurfing, and shell chains surface in real time.
+              Upload a CSV. Graph engine maps the network. Four detectors surface laundering patterns instantly.
             </motion.p>
 
             {/* CTAs */}
             <motion.div
-              className="flex flex-wrap gap-3 mb-14"
+              className="flex flex-wrap gap-3 mb-5"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.40, ease: [0.22, 1, 0.36, 1] }}
@@ -456,6 +458,39 @@ export default function Hero() {
               >
                 View Capabilities
               </motion.a>
+            </motion.div>
+
+            {/* System status readout */}
+            <motion.div
+              className="flex items-center gap-2 mb-10"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.58 }}
+            >
+              <motion.span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{
+                  background: analysisStatus === 'uploading' || analysisStatus === 'analyzing'
+                    ? '#FCD34D'
+                    : analysisStatus === 'error'
+                    ? '#F87171'
+                    : '#34D399',
+                }}
+                animate={{ opacity: analysisStatus === 'uploading' || analysisStatus === 'analyzing' ? [1, 0.3, 1] : 1 }}
+                transition={{ repeat: Infinity, duration: 1.4 }}
+              />
+              <span
+                className="text-[10px] font-mono font-semibold tracking-[0.18em] uppercase select-none"
+                style={{ color: 'rgba(255,255,255,0.28)' }}
+              >
+                {analysisStatus === 'uploading' || analysisStatus === 'analyzing'
+                  ? 'PROCESSING — ENGINE ACTIVE'
+                  : analysisStatus === 'done'
+                  ? 'ANALYSIS COMPLETE'
+                  : analysisStatus === 'error'
+                  ? 'SYSTEM ALERT'
+                  : 'SYSTEM READY · AWAITING DATA'}
+              </span>
             </motion.div>
 
             {/* Stats */}
