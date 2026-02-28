@@ -361,9 +361,8 @@ export default function UploadAnalysis() {
               Drop your<br />transaction data.
             </h2>
             <p className="text-muted text-[1.0625rem] leading-relaxed mb-8">
-              Upload any CSV with financial transactions. The engine builds a directed
-              graph and runs four pattern detectors — cycles, smurfing, shell chains,
-              and velocity analysis — in seconds.
+              Upload a CSV. Four pattern detectors fire instantly — cycles, smurfing,
+              shell chains, and velocity — results in under 11 seconds.
             </p>
 
             {/* Required fields */}

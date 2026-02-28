@@ -905,18 +905,14 @@ export default function GraphViz() {
       <div className="container-wide">
 
         {/* Header */}
-        <motion.div className="mb-14"
+        <motion.div className="mb-10"
           initial={{ opacity:0, y:24 }}
           animate={{ opacity:1, y:0  }}
           transition={{ duration:0.7, ease:[0.22,1,0.36,1] }}>
-          <p className="section-label mb-3">Graph Visualization</p>
-          <h2 className="section-title max-w-lg">
-            See the network.<br />Identify the crime.
+          <p className="section-label mb-3">Investigation View</p>
+          <h2 className="section-title max-w-xl">
+            Transactions become<br />an intelligence network.
           </h2>
-          <p className="mt-4 text-muted max-w-md leading-relaxed">
-            Transactions modelled as a directed graph. Patterns invisible in
-            spreadsheets become unmistakable in topology.
-          </p>
         </motion.div>
 
         <div className="flex flex-col lg:flex-row gap-8 items-start">

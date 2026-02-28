@@ -80,10 +80,10 @@ export default function SystemCapabilities() {
   return (
     <section id="capabilities" className="py-24 bg-white border-t border-slate-100" ref={ref}>
       <div className="container-wide">
-        <motion.div className="mb-14" initial={{ opacity: 0, y: 20 }} animate={inView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.6, ease: EASE }}>
-          <p className="section-label mb-3">System Architecture</p>
+        <motion.div className="mb-12" initial={{ opacity: 0, y: 20 }} animate={inView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.6, ease: EASE }}>
+          <p className="section-label mb-3">System Capabilities</p>
           <h2 className="section-title max-w-lg">Built. Not promised.</h2>
-          <p className="mt-4 text-muted text-[1rem] leading-relaxed max-w-md">Every module below is running in production. Roadmap items are on the public timeline.</p>
+          <p className="mt-3 text-muted text-[0.9375rem]">What’s live today. What’s shipping next.</p>
         </motion.div>
 
         <div className="grid md:grid-cols-2 gap-10 xl:gap-16">

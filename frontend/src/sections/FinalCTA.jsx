@@ -31,33 +31,31 @@ export default function FinalCTA() {
 
         {/* Headline */}
         <motion.h2
-          className="font-black tracking-tight mb-6"
-          style={{
-            fontSize: "clamp(2.6rem, 7vw, 5.5rem)",
-            lineHeight: 1.0,
-            letterSpacing: "-0.035em",
-          }}
           className="font-black tracking-tight mb-6 text-ink"
+          style={{
+            fontSize: "clamp(2.4rem, 6vw, 4.5rem)",
+            lineHeight: 1.08,
+            letterSpacing: "-0.03em",
+          }}
           initial={{ opacity: 0, y: 22 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.75, delay: 0.1, ease: EASE }}
         >
-          Start your
+          Run a Live
           <br />
-          <span className="text-blue-600">investigation.</span>
+          <span className="text-blue-600">Investigation.</span>
         </motion.h2>
 
         {/* Sub */}
         <motion.p
-          className="text-[1.1rem] max-w-md mb-12 leading-relaxed"
-          className="text-muted"
+          className="text-[1.05rem] max-w-sm mb-10 leading-relaxed text-muted"
           initial={{ opacity: 0, y: 14 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.65, delay: 0.22, ease: EASE }}
         >
-          Drop a transaction CSV. The engine maps the network, detects patterns, and seals intelligence — in under 11 seconds.
+          Drop a CSV. The engine maps the network, scores every account, and seals the evidence.
         </motion.p>
 
         {/* CTA button */}
@@ -82,7 +80,7 @@ export default function FinalCTA() {
             whileTap={{ scale: 0.97 }}
             transition={{ type: "spring", stiffness: 400, damping: 24 }}
           >
-            <span className="relative z-10">Upload Transactions</span>
+            <span className="relative z-10">Run a Live Investigation</span>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="relative z-10">
               <path d="M3.5 8h9M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
@@ -100,25 +98,15 @@ export default function FinalCTA() {
         </motion.div>
 
         {/* Stat strip */}
-        <motion.div
-          className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 mt-16 border-t border-slate-200 pt-8"
+        <motion.p
+          className="mt-10 text-[12px] font-mono text-muted tracking-wide"
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
           transition={{ duration: 0.8, delay: 0.5 }}
         >
-          {[
-            ["< 11s", "Full analysis"],
-            ["97.2%", "Detection accuracy"],
-            ["4", "Pattern engines"],
-            ["SHA-256", "Evidence sealed"],
-          ].map(([val, label]) => (
-            <div key={label} className="flex flex-col items-center">
-              <span className="text-2xl font-black tabular-nums tracking-tight text-ink">{val}</span>
-              <span className="text-[11px] font-medium mt-0.5 text-muted">{label}</span>
-            </div>
-          ))}
-        </motion.div>
+          &lt;11s analysis &nbsp;·&nbsp; 97.2% accuracy &nbsp;·&nbsp; 4 pattern engines &nbsp;·&nbsp; SHA-256 verified
+        </motion.p>
 
       </div>
     </section>

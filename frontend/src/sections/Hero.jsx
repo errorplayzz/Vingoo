@@ -156,8 +156,6 @@ export default function Hero() {
     fetch(`${API_BASE}/health`).then(r => setHealthOk(r.ok)).catch(() => setHealthOk(false));
   }, []);
 
-  const EASE = [0.22, 1, 0.36, 1];
-
   return (
     <section
       id="hero"
@@ -221,7 +219,7 @@ export default function Hero() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2, ease: EASE }}
             >
-              Graph-based engine detects cycles, smurfing, shell chains, and high-velocity patterns. Upload a CSV — intelligence surfaces in under 11 seconds.
+              Drop a CSV. Get a fraud network map, risk scores, and court-grade evidence — in under 11 seconds.
             </motion.p>
 
             {/* CTAs */}
@@ -255,6 +253,25 @@ export default function Hero() {
                 View Capabilities
               </motion.a>
             </motion.div>
+
+            {/* Trust bullets */}
+            <motion.ul
+              className="flex flex-col gap-2 mb-8 text-[13px] text-muted"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.38, ease: EASE }}
+            >
+              {[
+                "Graph Intelligence",
+                "Role Classification",
+                "Evidence Integrity Seal",
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-2">
+                  <span className="text-emerald-500 font-bold text-[11px]">✓</span>
+                  <span className="font-medium text-ink">{item}</span>
+                </li>
+              ))}
+            </motion.ul>
 
             {/* System status */}
             <motion.div
