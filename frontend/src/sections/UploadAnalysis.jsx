@@ -344,7 +344,8 @@ export default function UploadAnalysis() {
   const isIdle    = status === "idle";
 
   return (
-    <section id="upload" className="bg-white border-t border-black/[0.06]"
+    <section id="upload" data-focus-target="upload"
+      className="bg-white border-t border-black/[0.06]"
       style={{ overflowX: "hidden" }}>
       <div className="container-wide py-28 md:py-32">
 

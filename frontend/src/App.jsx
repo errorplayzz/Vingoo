@@ -13,6 +13,9 @@ import UploadAnalysis      from './sections/UploadAnalysis';
 import ProtectPage         from './sections/ProtectPage';
 import Footer              from './sections/Footer';
 import SystemAmbientLayer  from './ui/SystemAmbientLayer';
+import { DemoModeProvider } from './demo/DemoModeProvider';
+import SystemNarration     from './demo/SystemNarration';
+import FocusHighlight      from './demo/FocusHighlight';
 
 // ── Lazy-loaded sections ─────────────────────────────────────────────────────
 // These are below-the-fold or only conditionally rendered.  Each gets its own
@@ -95,9 +98,13 @@ function App() {
       <ToastProvider>
         {/* Global ambient layer — renders behind all content, no interaction cost */}
         <SystemAmbientLayer />
+        <DemoModeProvider>
         <AnalysisProvider>
           {/* Scroll to top whenever the route pathname changes */}
           <ScrollToTop />
+          {/* Demo Mode: guided narration + focus highlights (no-op when demo=false) */}
+          <SystemNarration />
+          <FocusHighlight />
 
         <Routes>
           {/* ── Landing page ──────────────────────────────────────── */}
@@ -144,6 +151,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </AnalysisProvider>
+        </DemoModeProvider>
       </ToastProvider>
     </AuthProvider>
   );

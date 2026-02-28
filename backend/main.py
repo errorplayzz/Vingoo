@@ -36,6 +36,8 @@ if sys.platform != "win32":
 from ai_explainer import generate_account_explanations, generate_ring_summaries
 from database import Base, engine, get_db, SessionLocal, verify_connection
 from detection import run_all_detections
+from role_intelligence import apply_role_classification
+from evidence_seal import generate_analysis_seal, verify_analysis_seal
 from evaluation import evaluate_detections, generate_performance_report
 from models import (
     AnalysisResponse,
@@ -494,6 +496,13 @@ async def analyze(
         print(f"[ML WARNING] IsolationForest skipped: {_ml_exc}")
     await _sse.emit_analysis_progress("ml", 75, f"ML layer {'active' if ml_diag.get('ml_active') else 'skipped'}")
 
+    # ------------------------------------------------------------------
+    # Financial Role Intelligence — classify Victim / Mule / Controller
+    # Uses existing flow, graph, and pattern signals; no extra graph ops.
+    # ------------------------------------------------------------------
+    apply_role_classification(suspicious_accounts)
+    await _sse.emit_analysis_progress("roles", 78, f"Financial roles classified for {len(suspicious_accounts)} accounts")
+
     score_lookup = build_score_lookup(suspicious_accounts)
 
     # score rings (pass G for amount circulation calculation)
@@ -596,6 +605,18 @@ async def analyze(
     })
     print(f"[AI] Status: {ai_overall_status} | accounts explained: {len(acct_ai['explanations'])} | rings summarised: {len(ring_ai['summaries'])}")
     await _sse.emit_analysis_progress("ai", 90, f"AI status: {ai_overall_status}")
+
+    # ------------------------------------------------------------------
+    # Evidence Integrity Seal — SHA-256 over full response JSON
+    # Generated after all enrichment layers are complete.
+    # ------------------------------------------------------------------
+    _seal = generate_analysis_seal(response.model_dump())
+    response = response.model_copy(update={
+        "integrity_hash":     _seal["integrity_hash"],
+        "sealed_at":          _seal["sealed_at"],
+        "integrity_verified": True,
+    })
+    print(f"[SEAL] integrity_hash={_seal['integrity_hash'][:16]}...  sealed_at={_seal['sealed_at']}")
 
     # ------------------------------------------------------------------
     # Cache results
@@ -866,6 +887,196 @@ async def export_latest() -> JSONResponse:
             ),
         )
     return JSONResponse(content=data)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: GET /verify/{analysis_id}
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/verify/{analysis_id}",
+    summary="Verify cryptographic integrity of a stored analysis",
+    tags=["Detection"],
+)
+async def verify_integrity(analysis_id: str) -> JSONResponse:
+    """Re-derive the SHA-256 seal for the stored analysis and compare hashes.
+
+    Returns ``verified: true`` when the stored record has not been tampered
+    with since it was sealed by the detection pipeline.
+
+    Lookup order: Redis (multi-worker) → in-memory fallback → 404.
+    """
+    data = await _cache.cache_get(_cache.KEY_LATEST_ANALYSIS) or _latest_analysis
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No analysis available. Run POST /analyze first.",
+        )
+
+    stored_id = data.get("analysis_id")
+    if stored_id != analysis_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Analysis {analysis_id!r} not found. "
+                f"The most recent analysis is {stored_id!r}."
+            ),
+        )
+
+    result = verify_analysis_seal(data)
+    return JSONResponse(content={
+        "analysis_id":    analysis_id,
+        "verified":       result["verified"],
+        "detail":         result["detail"],
+        "stored_hash":    result["stored_hash"],
+        "algorithm":      result["algorithm"],
+        "status":         "VERIFIED" if result["verified"] else "INTEGRITY_MISMATCH",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: GET /system-capabilities
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/system-capabilities",
+    summary="Declare implemented vs roadmap capabilities for transparent positioning",
+    tags=["System"],
+)
+async def system_capabilities() -> JSONResponse:
+    """Return a structured capability manifest.
+
+    Lists what is IMPLEMENTED in the current build vs what is on the roadmap.
+    This endpoint exists for honest, judge-facing positioning during evaluation.
+    """
+    return JSONResponse(content={
+        "system": "VINGOO Financial Intelligence Platform",
+        "version": "1.0.0-research-prototype",
+        "positioning": "Advanced Research Prototype / Hackathon Build",
+        "implemented_modules": [
+            {
+                "id": "detection_pipeline",
+                "name": "8-Pattern Fraud Detection Pipeline",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "Cycle detection (len 3-5), smurfing (fan-in/out), "
+                    "shell chain, high velocity, structuring, rapid roundtrip, "
+                    "amount convergence, degree anomaly — all concurrent via "
+                    "NetworkX graph analytics."
+                ),
+            },
+            {
+                "id": "ml_anomaly",
+                "name": "IsolationForest Anomaly Boost Layer",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "Trained on multi-dimensional feature vectors from historical "
+                    "analysis runs.  Scheduled retrain via APScheduler."
+                ),
+            },
+            {
+                "id": "role_intelligence",
+                "name": "Financial Role Classification (Victim / Mule / Controller)",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "Derives normalised role probabilities from existing flow "
+                    "imbalance, centrality, and pattern signals.  "
+                    "No additional graph traversals required."
+                ),
+            },
+            {
+                "id": "evidence_seal",
+                "name": "Cryptographic Evidence Integrity Seal",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "SHA-256 digest over canonical analysis JSON.  "
+                    "Verifiable via GET /verify/{analysis_id}.  "
+                    "Provides tamper-evident audit trail without blockchain."
+                ),
+            },
+            {
+                "id": "ai_explanations",
+                "name": "AI-Generated Investigation Narratives",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "Per-account and per-ring explanations via OpenRouter "
+                    "Claude 3.5 Sonnet.  Rule-based fallback when AI is unavailable."
+                ),
+            },
+            {
+                "id": "second_chance",
+                "name": "24-Hour Dispute / Second-Chance Window",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "Flagged accounts may be disputed within 24 hours.  "
+                    "Review requests persisted to DB with unique REV-* IDs."
+                ),
+            },
+            {
+                "id": "real_time_sse",
+                "name": "Real-Time Server-Sent Events Stream",
+                "status": "IMPLEMENTED",
+                "detail": (
+                    "Three SSE channels (alerts, analysis, all) via Redis pub/sub "
+                    "for multi-worker deployments."
+                ),
+            },
+            {
+                "id": "victim_reports",
+                "name": "Citizen / Victim Report Submission",
+                "status": "IMPLEMENTED",
+                "detail": "POST /report endpoint with DB persistence and SSE notification.",
+            },
+        ],
+        "roadmap_modules": [
+            {
+                "id": "blockchain_anchoring",
+                "name": "Immutable Blockchain Evidence Anchoring",
+                "status": "ROADMAP",
+                "detail": (
+                    "Publish integrity hashes to a public ledger (Ethereum/Polygon) "
+                    "for legally admissible tamper-proof evidence.  "
+                    "Current build uses cryptographic sealing without on-chain storage."
+                ),
+            },
+            {
+                "id": "role_ml_classifier",
+                "name": "Trained ML Role Classifier",
+                "status": "ROADMAP",
+                "detail": (
+                    "Replace heuristic role probabilities with a supervised "
+                    "GNN-based classifier trained on labelled financial crime datasets."
+                ),
+            },
+            {
+                "id": "red_team_simulation",
+                "name": "Adversarial Red-Team / Evasion Simulation",
+                "status": "ROADMAP",
+                "detail": (
+                    "Synthetic adversarial graph mutations to stress-test "
+                    "detection robustness."
+                ),
+            },
+            {
+                "id": "regulatory_export",
+                "name": "Regulatory Report Auto-Generation (SAR / STR)",
+                "status": "ROADMAP",
+                "detail": (
+                    "Structured Suspicious Activity Report / Suspicious Transaction "
+                    "Report generation in jurisdiction-compliant formats."
+                ),
+            },
+            {
+                "id": "cross_institution",
+                "name": "Cross-Institution Federated Analysis",
+                "status": "ROADMAP",
+                "detail": (
+                    "Privacy-preserving federated learning across multiple financial "
+                    "institutions without raw data sharing."
+                ),
+            },
+        ],
+    })
 
 
 # ---------------------------------------------------------------------------

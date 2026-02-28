@@ -897,7 +897,7 @@ export default function GraphViz() {
   const handleReset = useCallback(() => {}, []);
 
   return (
-    <section id="graph" className="bg-white border-t border-black/[0.06] py-24 md:py-32">
+    <section id="graph" data-focus-target="graph" className="bg-white border-t border-black/[0.06] py-24 md:py-32">
       <div className="container-wide">
 
         {/* Header */}

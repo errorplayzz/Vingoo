@@ -323,6 +323,7 @@ export default function StoryMode() {
   return (
     <section
       ref={containerRef}
+      data-focus-target="patterns"
       className="relative border-t border-black/[0.06]"
       style={{ height: `${(n + 0.6) * 100}vh`, background: "#F7F8FA" }}
     >

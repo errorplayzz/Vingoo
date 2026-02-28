@@ -40,12 +40,40 @@ function ScorePill({ score }) {
   );
 }
 
-function PatternTag({ label }) {
+function RoleBadge({ role }) {
+  if (!role || role === 'UNCLASSIFIED') return null;
+  const cfg = {
+    CONTROLLER:      { label: 'Controller',     cls: 'bg-red-50 text-red-700 border-red-200' },
+    MULE:            { label: 'Mule',           cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+    POSSIBLE_VICTIM: { label: 'Possible Victim', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+  };
+  const { label, cls } = cfg[role] ?? { label: role, cls: 'bg-slate-50 text-slate-600 border-slate-200' };
   return (
-    <span className="inline-block text-[9.5px] font-semibold font-mono px-1.5 py-0.5 rounded-md
-                     bg-accent/[0.06] text-accent border border-accent/20 whitespace-nowrap">
+    <span className={`inline-flex items-center text-[9.5px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${cls}`}>
       {label}
     </span>
+  );
+}
+
+/* ─── Integrity Seal Badge ────────────────────────────────────────────────── */
+function IntegritySeal({ hash, sealedAt }) {
+  if (!hash) return null;
+  return (
+    <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg
+                    bg-emerald-50 border border-emerald-200 text-emerald-700">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
+        <path d="M6 1L2 3v3c0 2.5 1.7 4.7 4 5.4C8.3 10.7 10 8.5 10 6V3L6 1z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+        <path d="M4 6l1.5 1.5L8 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      <span className="text-[10px] font-mono font-semibold">
+        SHA-256 &nbsp;·&nbsp; {hash.slice(0, 16)}&hellip;
+      </span>
+      {sealedAt && (
+        <span className="text-[9px] text-emerald-500 hidden sm:inline">
+          &nbsp;·&nbsp; sealed {sealedAt.slice(0, 19).replace('T', ' ')} UTC
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -489,6 +517,7 @@ function AccountsTable({ result, investigatorMode, onRingClick, highlightedRingI
   return (
     <>
     <motion.div
+      data-focus-target="roles"
       className="rounded-2xl border border-black/[0.06] bg-white overflow-hidden mb-8"
       style={{ boxShadow: "0 2px 16px rgba(0,0,0,0.05)" }}
       initial={{ opacity: 0, y: 12 }}
@@ -552,6 +581,9 @@ function AccountsTable({ result, investigatorMode, onRingClick, highlightedRingI
               </th>
               <th className="text-left px-4 py-3 text-[10px] font-semibold text-faint uppercase tracking-wider whitespace-nowrap">
                 Ring ID
+              </th>
+              <th className="text-left px-4 py-3 text-[10px] font-semibold text-faint uppercase tracking-wider whitespace-nowrap">
+                Role
               </th>
               <th className="text-left px-4 py-3 text-[10px] font-semibold text-faint uppercase tracking-wider whitespace-nowrap">
                 Action
@@ -674,7 +706,7 @@ function AccountsTable({ result, investigatorMode, onRingClick, highlightedRingI
                     <AnimatePresence>
                       {isExpanded && (
                         <tr key={`${acc.account_id}-exp`}>
-                          <td colSpan={investigatorMode ? 6 : 5} className="p-0 border-b border-black/[0.04]">
+                          <td colSpan={investigatorMode ? 7 : 6} className="p-0 border-b border-black/[0.04]">
                             <motion.div
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: "auto", opacity: 1 }}
@@ -704,9 +736,16 @@ function AccountsTable({ result, investigatorMode, onRingClick, highlightedRingI
                                       Ring: <span className="font-mono font-bold text-violet-700">{acc.ring_id}</span>
                                     </span>
                                   )}
-                                  {acc.ai_confidence !== undefined && (
+                                  {acc.financial_role && acc.financial_role !== 'UNCLASSIFIED' && (
                                     <span className="text-faint">
-                                      AI confidence: <span className="font-bold text-ink">{acc.ai_confidence}%</span>
+                                      Role: <RoleBadge role={acc.financial_role} />
+                                    </span>
+                                  )}
+                                  {acc.victim_probability > 0 && (
+                                    <span className="text-faint text-[10px]">
+                                      V:{(acc.victim_probability * 100).toFixed(0)}%
+                                      &nbsp;M:{(acc.mule_probability * 100).toFixed(0)}%
+                                      &nbsp;C:{(acc.controller_probability * 100).toFixed(0)}%
                                     </span>
                                   )}
                                 </div>
@@ -1004,6 +1043,8 @@ export default function ResultsDashboard() {
               )}
             </div>
           )}
+          {/* Integrity Seal */}
+          <IntegritySeal hash={result.integrity_hash} sealedAt={result.sealed_at} />
         </motion.div>
 
         {/* 1. Executive Summary Bar */}
