@@ -16,10 +16,8 @@ import SystemNarration     from './demo/SystemNarration';
 import FocusHighlight      from './demo/FocusHighlight';
 
 // ── Lazy-loaded sections ─────────────────────────────────────────────────────
-// Below-the-fold sections get their own async chunk so the initial bundle
-// stays small. Load order matches scroll position (top → bottom).
-const StoryMode            = lazy(() => import('./sections/StoryMode'));
-const ResultsDashboard     = lazy(() => import('./sections/ResultsDashboard'));
+const ProblemSection       = lazy(() => import('./sections/ProblemSection'));
+const SolutionSection      = lazy(() => import('./sections/SolutionSection'));
 const GraphViz             = lazy(() => import('./sections/GraphViz'));
 const SystemCapabilities   = lazy(() => import('./sections/SystemCapabilities'));
 const FinalCTA             = lazy(() => import('./sections/FinalCTA'));
@@ -34,33 +32,33 @@ const SectionFallback = memo(() => (
   </div>
 ));
 
-// ── Landing page (the original single-scroll experience) ────────────────────
+// ── Landing page (clean white scroll) ──────────────────────────────────────
 function ScrollHome() {
   return (
-    <div className="bg-[#060B18] font-sans">
+    <div className="bg-white font-sans">
       <Navbar />
       <main>
-        {/* Eager — above the fold */}
+        {/* Above the fold */}
         <Hero />
 
-        {/* Investigation story — parallax scroll */}
+        {/* Problem → Solution narrative */}
         <Suspense fallback={<SectionFallback />}>
-          <StoryMode />
+          <ProblemSection />
         </Suspense>
 
-        {/* Core upload + results */}
+        <Suspense fallback={<SectionFallback />}>
+          <SolutionSection />
+        </Suspense>
+
+        {/* Upload interaction */}
         <UploadAnalysis />
 
-        <Suspense fallback={<SectionFallback />}>
-          <ResultsDashboard />
-        </Suspense>
-
-        {/* GraphViz loads the entire D3 bundle — isolated chunk */}
+        {/* Graph product section */}
         <Suspense fallback={<SectionFallback />}>
           <GraphViz />
         </Suspense>
 
-        {/* System capabilities — live data from /system-capabilities */}
+        {/* System capabilities */}
         <Suspense fallback={<SectionFallback />}>
           <SystemCapabilities />
         </Suspense>

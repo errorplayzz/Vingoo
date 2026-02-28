@@ -6,8 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useAnalysisState } from '../context/AnalysisContext';
 
 const links = [
+  { label: "How It Works",  href: "#solution" },
   { label: "Upload",        href: "#upload" },
-  { label: "Graph",         href: "#graph" },
   { label: "Capabilities",  href: "#capabilities" },
 ];
 
@@ -58,10 +58,8 @@ export default function Navbar() {
   return (
     <>
       <motion.header
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-          scrolled
-            ? "bg-[#060B18]/95 backdrop-blur-xl border-b border-white/[0.07] shadow-[0_1px_20px_rgba(0,0,0,0.45)]"
-            : "bg-transparent border-b border-transparent"
+        className={`fixed top-0 left-0 right-0 z-50 bg-white transition-all duration-300 ${
+          scrolled ? "border-b border-slate-200 shadow-[0_1px_12px_rgba(0,0,0,0.06)]" : "border-b border-slate-100"
         }`}
         initial={{ y: -80 }}
         animate={{ y: 0 }}
@@ -93,11 +91,7 @@ export default function Navbar() {
               <a
                 key={l.label}
                 href={l.href}
-                className={`text-[13px] font-medium transition-colors duration-300 ${
-                  scrolled
-                    ? "text-white/55 hover:text-white"
-                    : "text-white/55 hover:text-white"
-                }`}
+                className="text-[13px] font-medium text-muted hover:text-ink transition-colors duration-200"
               >
                 {l.label}
               </a>
@@ -115,14 +109,14 @@ export default function Navbar() {
               </div>
               {/* Live clock */}
               <span
-                className={`text-[9.5px] font-mono tabular-nums tracking-wider select-none text-white/40`}
+                className="text-[9.5px] font-mono tabular-nums tracking-wider select-none text-muted"
               >
                 {clock}
               </span>
             </div>
 
             {/* visual separator */}
-            <div className="w-px h-4 bg-white/15" />
+            <div className="w-px h-4 bg-slate-200" />
             <StatusBadge />
 
             {/* ── Auth section ─────────────────────────────────────── */}
@@ -140,7 +134,7 @@ export default function Navbar() {
                 </Link>
                 <button
                   onClick={logout}
-                  className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90`}
+                  className="text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-200 bg-white text-muted border-slate-200 hover:border-red-300 hover:text-red-600"
                   title="Sign out"
                 >
                   Sign Out
@@ -150,7 +144,7 @@ export default function Navbar() {
               /* Public: subtle sign-in link */
               <Link
                 to="/login"
-                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 bg-white/[0.07] text-white/60 border-white/[0.12] hover:bg-white/[0.12] hover:text-white/90`}
+              className="text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-200 bg-white text-muted border-slate-200 hover:border-accent/40 hover:text-ink"
                 title="Sign in to investigator console"
               >
                 Sign In
@@ -185,7 +179,7 @@ export default function Navbar() {
             aria-label="Toggle menu"
           >
             {["w-5","w-4","w-5"].map((w, i) => (
-              <span key={i} className={`block h-[1.5px] transition-all duration-300 bg-white/80 ${
+              <span key={i} className={`block h-[1.5px] transition-all duration-300 bg-ink/70 ${
                 i === 0 && menuOpen ? "w-5 rotate-45 translate-y-[5px]" :
                 i === 1 && menuOpen ? "opacity-0 w-0" :
                 i === 2 && menuOpen ? "w-5 -rotate-45 -translate-y-[5px]" : w
@@ -199,7 +193,7 @@ export default function Navbar() {
       <AnimatePresence>
         {menuOpen && (
           <motion.div
-            className="fixed inset-0 z-40 bg-[#060B18] pt-16 flex flex-col px-6 pb-8"
+            className="fixed inset-0 z-40 bg-white pt-16 flex flex-col px-6 pb-8 shadow-2xl"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
@@ -211,7 +205,7 @@ export default function Navbar() {
                   key={l.label}
                   href={l.href}
                   onClick={() => setMenuOpen(false)}
-                  className="text-2xl font-semibold text-white/80 py-3 border-b border-white/[0.07]"
+                  className="text-2xl font-semibold text-ink py-3 border-b border-slate-100"
                   initial={{ opacity: 0, x: -16 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.06 }}

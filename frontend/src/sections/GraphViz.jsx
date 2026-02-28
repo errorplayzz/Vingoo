@@ -901,16 +901,7 @@ export default function GraphViz() {
   const handleReset = useCallback(() => {}, []);
 
   return (
-    <section ref={sectionRef} id="graph" data-focus-target="graph" className="dark-section py-24 md:py-32 relative" style={{ background: "linear-gradient(180deg, #07101F 0%, #060B18 100%)", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-
-      {/* Cinematic entry veil — fades out when section enters viewport */}
-      <motion.div
-        className="absolute inset-0 z-30 pointer-events-none"
-        style={{ background: "#040810" }}
-        initial={{ opacity: 0.6 }}
-        animate={{ opacity: sectionInView ? 0 : 0.6 }}
-        transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-      />
+    <section ref={sectionRef} id="graph" data-focus-target="graph" className="py-24 md:py-32 relative bg-slate-50 border-t border-slate-200">
       <div className="container-wide">
 
         {/* Header */}

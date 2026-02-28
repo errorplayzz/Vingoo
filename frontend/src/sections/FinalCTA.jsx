@@ -6,35 +6,14 @@ export default function FinalCTA() {
   return (
     <section
       id="cta"
-      className="relative overflow-hidden"
-      style={{
-        background: "linear-gradient(180deg, #070D1C 0%, #060B18 50%, #04080F 100%)",
-        borderTop: "1px solid rgba(255,255,255,0.05)",
-      }}
+      className="relative overflow-hidden bg-slate-50 border-t border-slate-200"
     >
-      {/* Centre glow */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: "radial-gradient(ellipse 60% 55% at 50% 40%, rgba(29,78,216,0.14) 0%, transparent 68%)",
-        }}
-      />
-
-      {/* Dot grid */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-40"
-        style={{
-          backgroundImage: "radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-        }}
-      />
 
       <div className="container-wide py-32 flex flex-col items-center text-center relative z-10">
 
         {/* Top tag */}
         <motion.div
-          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-10"
-          style={{ background: "rgba(29,78,216,0.12)", border: "1px solid rgba(59,130,246,0.20)" }}
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-10 bg-blue-50 border border-blue-200"
           initial={{ opacity: 0, y: 12 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -45,7 +24,7 @@ export default function FinalCTA() {
             animate={{ opacity: [1, 0.3, 1] }}
             transition={{ repeat: Infinity, duration: 2.2 }}
           />
-          <span className="text-[10px] font-bold tracking-[0.14em] uppercase" style={{ color: "rgba(147,197,253,0.80)" }}>
+          <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-blue-600">
             Investigation Ready
           </span>
         </motion.div>
@@ -57,8 +36,8 @@ export default function FinalCTA() {
             fontSize: "clamp(2.6rem, 7vw, 5.5rem)",
             lineHeight: 1.0,
             letterSpacing: "-0.035em",
-            color: "rgba(255,255,255,0.94)",
           }}
+          className="font-black tracking-tight mb-6 text-ink"
           initial={{ opacity: 0, y: 22 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -66,21 +45,13 @@ export default function FinalCTA() {
         >
           Start your
           <br />
-          <span
-            style={{
-              background: "linear-gradient(95deg, #60A5FA 0%, #818CF8 60%, #A78BFA 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
-            investigation.
-          </span>
+          <span className="text-blue-600">investigation.</span>
         </motion.h2>
 
         {/* Sub */}
         <motion.p
           className="text-[1.1rem] max-w-md mb-12 leading-relaxed"
-          style={{ color: "rgba(255,255,255,0.38)" }}
+          className="text-muted"
           initial={{ opacity: 0, y: 14 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -130,8 +101,7 @@ export default function FinalCTA() {
 
         {/* Stat strip */}
         <motion.div
-          className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 mt-16"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.055)", paddingTop: "2rem" }}
+          className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 mt-16 border-t border-slate-200 pt-8"
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
@@ -144,8 +114,8 @@ export default function FinalCTA() {
             ["SHA-256", "Evidence sealed"],
           ].map(([val, label]) => (
             <div key={label} className="flex flex-col items-center">
-              <span className="text-2xl font-black tabular-nums tracking-tight" style={{ color: "rgba(255,255,255,0.88)" }}>{val}</span>
-              <span className="text-[11px] font-medium mt-0.5" style={{ color: "rgba(255,255,255,0.28)" }}>{label}</span>
+              <span className="text-2xl font-black tabular-nums tracking-tight text-ink">{val}</span>
+              <span className="text-[11px] font-medium mt-0.5 text-muted">{label}</span>
             </div>
           ))}
         </motion.div>
