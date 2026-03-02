@@ -110,6 +110,14 @@ class AccountRecord(Base):
     detected_patterns = Column(ARRAY(String), nullable=False, default=list)
     ring_id = Column(String(255), nullable=True)
 
+    # ── Right to Defense fields ────────────────────────────────────────────
+    # review_status: FLAGGED → UNDER_REVIEW → CLEARED | ESCALATED
+    review_status = Column(String(50), nullable=False, default="FLAGGED", server_default="FLAGGED")
+    defense_statement = Column(Text, nullable=True)
+    defense_submitted_at = Column(DateTime(timezone=True), nullable=True)
+    review_decision = Column(Text, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
     # relationships
     analysis = relationship("Analysis", back_populates="accounts")
 

@@ -59,6 +59,11 @@ numpy>=1.26.0
 # v3.x stable release line (v4.x is a redesign still in beta)
 apscheduler>=3.10.0
 
+# ── Firebase Auth (optional – set FIREBASE_CREDENTIALS_PATH to enable) ───────
+
+# Firebase Admin SDK: verifies Firebase ID tokens from the frontend
+firebase-admin>=6.5.0
+
 # ── Security hardening ────────────────────────────────────────────────────────
 
 # JWT creation + verification (HMAC-SHA256 / RS256)

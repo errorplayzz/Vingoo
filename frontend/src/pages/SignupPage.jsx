@@ -1,13 +1,13 @@
 /**
- * pages/LoginPage.jsx — Firebase auth with email verification as 2FA
- * Steps: login → verify (if email not verified) | forgot
+ * pages/SignupPage.jsx — Firebase email/password signup + email verification
+ * Steps: form → verify
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, Link }       from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, Link }            from 'react-router-dom';
+import { motion, AnimatePresence }      from 'framer-motion';
 import {
-  loginWithEmail, loginWithGoogle,
-  sendVerificationEmail, reloadUser, sendPasswordReset,
+  signupWithEmail, loginWithGoogle,
+  sendVerificationEmail, reloadUser,
 } from '../auth/authService';
 import { useAuth } from '../context/AuthContext';
 
@@ -91,54 +91,6 @@ const GoogleIcon = () => (
   </svg>
 );
 
-/* ── Left brand panel ───────────────────────────────────────────────────────── */
-const BrandPanel = () => (
-  <div className="hidden lg:flex flex-col justify-between h-full p-12 relative overflow-hidden"
-    style={{ background: 'linear-gradient(145deg, #f5f3ff 0%, #ede9fe 40%, #e0e7ff 100%)' }}
-  >
-    <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-indigo-200/30 blur-3xl" />
-    <div className="absolute bottom-0 -left-16 w-64 h-64 rounded-full bg-violet-200/40 blur-3xl" />
-
-    <div className="relative z-10 flex items-center gap-2.5">
-      <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-300">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </div>
-      <span className="text-xl font-black tracking-tight text-slate-900">VINGOO</span>
-    </div>
-
-    <div className="relative z-10 flex flex-col gap-8">
-      <div>
-        <h2 className="text-3xl font-black text-slate-900 leading-tight mb-3">
-          AI-Powered<br />Fraud Intelligence
-        </h2>
-        <p className="text-slate-500 text-sm leading-relaxed">
-          Detect financial crime patterns in real time — fraud rings, money mules, shell chains and more.
-        </p>
-      </div>
-      <div className="flex flex-col gap-4">
-        {[
-          { icon: '🔍', text: 'Graph-based fraud ring detection' },
-          { icon: '🤖', text: 'ML anomaly scoring on every account' },
-          { icon: '🛡️', text: 'Role intelligence: controllers, mules, victims' },
-          { icon: '⚡', text: 'Sub-30s full transaction analysis' },
-        ].map(({ icon, text }) => (
-          <div key={text} className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-white/70 border border-white shadow-sm flex items-center justify-center text-base flex-shrink-0">{icon}</div>
-            <span className="text-sm font-medium text-slate-700">{text}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-
-    <div className="relative z-10 flex items-center gap-2 text-xs text-slate-400">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      Secured with Firebase Authentication
-    </div>
-  </div>
-);
-
 const Panel = ({ children, id }) => (
   <motion.div key={id}
     initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
@@ -175,26 +127,76 @@ const ErrBox = ({ msg }) => msg ? (
   </div>
 ) : null;
 
+/* ── Left brand panel ───────────────────────────────────────────────────────── */
+const BrandPanel = () => (
+  <div className="hidden lg:flex flex-col justify-between h-full p-12 relative overflow-hidden"
+    style={{ background: 'linear-gradient(145deg, #f5f3ff 0%, #ede9fe 40%, #e0e7ff 100%)' }}
+  >
+    <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-indigo-200/30 blur-3xl" />
+    <div className="absolute bottom-0 -left-16 w-64 h-64 rounded-full bg-violet-200/40 blur-3xl" />
+
+    <div className="relative z-10 flex items-center gap-2.5">
+      <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-300">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      <span className="text-xl font-black tracking-tight text-slate-900">VINGOO</span>
+    </div>
+
+    <div className="relative z-10 flex flex-col gap-8">
+      <div>
+        <h2 className="text-3xl font-black text-slate-900 leading-tight mb-3">
+          Detect Fraud.<br />Stop Crime. Fast.
+        </h2>
+        <p className="text-slate-500 text-sm leading-relaxed">
+          Join investigators who use AI-powered graph analysis to surface financial crime in seconds.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { stat: '< 30s', label: 'Full analysis' },
+          { stat: '99.2%', label: 'Detection rate' },
+          { stat: '6 types', label: 'Fraud patterns' },
+          { stat: 'Free', label: 'To get started' },
+        ].map(({ stat, label }) => (
+          <div key={stat} className="bg-white/60 border border-white rounded-xl p-3.5 flex flex-col gap-0.5">
+            <span className="text-lg font-black text-indigo-700">{stat}</span>
+            <span className="text-xs text-slate-500">{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className="relative z-10 flex items-center gap-2 text-xs text-slate-400">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Secured with Firebase Authentication
+    </div>
+  </div>
+);
+
 /* ── Main ──────────────────────────────────────────────────────────────────── */
-export default function LoginPage() {
-  const navigate                  = useNavigate();
+export default function SignupPage() {
+  const navigate                    = useNavigate();
   const { isAuthenticated, logout } = useAuth();
 
-  const [step,     setStep]     = useState('login');
-  const [email,    setEmail]    = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw,   setShowPw]   = useState(false);
-  const [err,      setErr]      = useState('');
-  const [info,     setInfo]     = useState('');
-  const [busy,     setBusy]     = useState(false);
-  const [resent,   setResent]   = useState(false);
+  const [step,      setStep]      = useState('form');
+  const [email,     setEmail]     = useState('');
+  const [password,  setPassword]  = useState('');
+  const [confirm,   setConfirm]   = useState('');
+  const [showPw,    setShowPw]    = useState(false);
+  const [showCf,    setShowCf]    = useState(false);
+  const [err,       setErr]       = useState('');
+  const [resent,    setResent]    = useState(false);
+  const [busy,      setBusy]      = useState(false);
   const pollRef = useRef(null);
 
   useEffect(() => {
     if (isAuthenticated) navigate('/admin', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  // Poll every 3s once on verify step to detect when user clicks the link
+  // Poll every 3s once on verify step
   useEffect(() => {
     if (step === 'verify') {
       pollRef.current = setInterval(async () => {
@@ -210,17 +212,16 @@ export default function LoginPage() {
     return () => clearInterval(pollRef.current);
   }, [step, navigate]);
 
-  const handleLogin = async (e) => {
-    e.preventDefault(); setErr(''); setBusy(true);
+  const handleSignup = async (e) => {
+    e.preventDefault(); setErr('');
+    if (password !== confirm) return setErr('Passwords do not match.');
+    if (password.length < 8)  return setErr('Password must be at least 8 characters.');
+    setBusy(true);
     try {
-      const user = await loginWithEmail(email, password);
-      if (!user.emailVerified) {
-        await sendVerificationEmail();
-        setStep('verify');
-      } else {
-        navigate('/admin', { replace: true });
-      }
-    } catch (e) { setErr(e.message || 'Login failed. Check your credentials.'); }
+      await signupWithEmail(email, password);
+      await sendVerificationEmail();
+      setStep('verify');
+    } catch (e) { setErr(e.message || 'Signup failed. Try again.'); }
     finally { setBusy(false); }
   };
 
@@ -228,7 +229,6 @@ export default function LoginPage() {
     setErr(''); setBusy(true);
     try {
       await loginWithGoogle();
-      // Google users are always email-verified → AuthContext will set isAuthenticated = true
       navigate('/admin', { replace: true });
     } catch (e) {
       if (e.code !== 'auth/popup-closed-by-user') setErr(e.message || 'Google sign-in failed.');
@@ -243,16 +243,13 @@ export default function LoginPage() {
     } catch (e) { setErr(e.message || 'Failed to resend email.'); }
   };
 
-  const handleForgot = async (e) => {
-    e.preventDefault();
-    if (!email) return setErr('Enter your email address first.');
-    setErr(''); setBusy(true);
-    try {
-      await sendPasswordReset(email);
-      setInfo('Reset link sent — check your inbox.');
-    } catch (e) { setErr(e.message || 'Failed to send reset email.'); }
-    finally { setBusy(false); }
-  };
+  const pwMeter = (() => {
+    const l = password.length;
+    if (l === 0) return null;
+    if (l < 6)  return { w: '33%', c: 'bg-red-400',    label: 'Weak' };
+    if (l < 10) return { w: '66%', c: 'bg-amber-400',  label: 'Fair' };
+    return              { w: '100%', c: 'bg-emerald-500', label: 'Strong' };
+  })();
 
   return (
     <div className="min-h-screen bg-white flex">
@@ -270,27 +267,28 @@ export default function LoginPage() {
 
           <AnimatePresence mode="wait">
 
-            {/* ── LOGIN ── */}
-            {step === 'login' && (
-              <Panel id="login">
-                <StepHeader badge="Investigator Access" title="Welcome back"
-                  subtitle="Sign in to your Vingoo account to continue analysing fraud." />
+            {/* ── SIGNUP FORM ── */}
+            {step === 'form' && (
+              <Panel id="form">
+                <StepHeader badge="Create Account" title="Get started free"
+                  subtitle="Set up your Vingoo investigator account in seconds." />
                 <OutlineBtn onClick={handleGoogle} loading={busy}>
                   <GoogleIcon />Continue with Google
                 </OutlineBtn>
                 <div className="flex items-center gap-3 text-xs text-slate-400 select-none">
                   <span className="flex-1 h-px bg-slate-200" />or<span className="flex-1 h-px bg-slate-200" />
                 </div>
-                <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                <form onSubmit={handleSignup} className="flex flex-col gap-4">
                   <Input label="Email address" type="email" placeholder="you@company.com"
                     value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+
                   <div>
                     <Label>Password</Label>
                     <div className="relative">
                       <input
-                        type={showPw ? 'text' : 'password'} placeholder="••••••••"
+                        type={showPw ? 'text' : 'password'} placeholder="Min 8 characters"
                         value={password} onChange={e => setPassword(e.target.value)}
-                        required autoComplete="current-password"
+                        required autoComplete="new-password"
                         className="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 pr-11 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:bg-white"
                       />
                       <button type="button" onClick={() => setShowPw(v => !v)}
@@ -301,17 +299,50 @@ export default function LoginPage() {
                         }
                       </button>
                     </div>
+                    {pwMeter && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-300 ${pwMeter.c}`} style={{ width: pwMeter.w }} />
+                        </div>
+                        <span className="text-[10px] text-slate-400">{pwMeter.label}</span>
+                      </div>
+                    )}
                   </div>
+
+                  <div>
+                    <Label>Confirm password</Label>
+                    <div className="relative">
+                      <input
+                        type={showCf ? 'text' : 'password'} placeholder="Repeat password"
+                        value={confirm} onChange={e => setConfirm(e.target.value)}
+                        required autoComplete="new-password"
+                        className={cls(
+                          'w-full rounded-xl border bg-slate-50/60 px-4 py-3 pr-11 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all',
+                          confirm && confirm !== password
+                            ? 'border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100 bg-red-50/30'
+                            : 'border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:bg-white',
+                        )}
+                      />
+                      <button type="button" onClick={() => setShowCf(v => !v)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition">
+                        {showCf
+                          ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        }
+                      </button>
+                    </div>
+                    {confirm && confirm !== password && (
+                      <p className="mt-1 text-[11px] text-red-500">Passwords don't match</p>
+                    )}
+                  </div>
+
                   <ErrBox msg={err} />
-                  <PrimaryBtn type="submit" loading={busy}>Sign in</PrimaryBtn>
+                  <PrimaryBtn type="submit" loading={busy}>Create account</PrimaryBtn>
                 </form>
-                <div className="flex flex-col gap-1.5 text-center text-xs text-slate-400">
-                  <button onClick={() => { setStep('forgot'); setErr(''); setInfo(''); }}
-                    className="hover:text-indigo-600 transition">Forgot password?</button>
-                  <span>No account?{' '}
-                    <Link to="/signup" className="text-indigo-600 hover:text-indigo-700 font-semibold transition">Create one free →</Link>
-                  </span>
-                </div>
+                <p className="text-center text-xs text-slate-400">
+                  Already have an account?{' '}
+                  <Link to="/login" className="text-indigo-600 hover:text-indigo-700 font-semibold transition">Sign in →</Link>
+                </p>
               </Panel>
             )}
 
@@ -319,7 +350,7 @@ export default function LoginPage() {
             {step === 'verify' && (
               <Panel id="verify">
                 <StepHeader badge="Email Verification" title="Check your inbox"
-                  subtitle={`We sent a verification link to ${email}. Click it to access Vingoo.`} />
+                  subtitle={`We sent a verification link to ${email}. Click it to activate your account.`} />
 
                 <div className="flex flex-col items-center gap-4 py-4">
                   <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
@@ -345,7 +376,7 @@ export default function LoginPage() {
 
                 <div className="flex flex-col gap-2">
                   <OutlineBtn onClick={handleResend}>Resend verification email</OutlineBtn>
-                  <button onClick={async () => { await logout(); setStep('login'); }}
+                  <button onClick={async () => { await logout(); setStep('form'); }}
                     className="text-xs text-slate-400 hover:text-indigo-600 transition text-center">
                     Use a different account
                   </button>
@@ -355,29 +386,6 @@ export default function LoginPage() {
                   Can't find it? Check your spam folder.<br />
                   The link expires in 24 hours.
                 </p>
-              </Panel>
-            )}
-
-            {/* ── FORGOT ── */}
-            {step === 'forgot' && (
-              <Panel id="forgot">
-                <StepHeader back={() => { setStep('login'); setErr(''); setInfo(''); }}
-                  title="Reset your password" subtitle="Enter your email and we'll send a secure reset link." />
-                {info ? (
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-4 text-sm text-emerald-800">
-                      <svg className="flex-shrink-0 mt-0.5" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                      <span>{info}</span>
-                    </div>
-                    <OutlineBtn onClick={() => { setStep('login'); setInfo(''); }}>Back to sign in</OutlineBtn>
-                  </div>
-                ) : (
-                  <form onSubmit={handleForgot} className="flex flex-col gap-4">
-                    <Input label="Email address" type="email" placeholder="you@company.com"
-                      value={email} onChange={e => setEmail(e.target.value)} required error={err || undefined} />
-                    <PrimaryBtn type="submit" loading={busy}>Send reset link</PrimaryBtn>
-                  </form>
-                )}
               </Panel>
             )}
 

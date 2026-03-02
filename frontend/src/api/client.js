@@ -133,6 +133,42 @@ export async function submitSecondChance(payload) {
 }
 
 /**
+ * POST /defense/{analysisId}
+ * Account holder submits a defense statement for a FLAGGED account.
+ * @param {string} analysisId
+ * @param {{ account_id: string, defense_text: string }} payload
+ */
+export async function submitDefense(analysisId, payload) {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/defense/${encodeURIComponent(analysisId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  return handleResponse(res);
+}
+
+/**
+ * POST /review/{analysisId}
+ * Investigator clears or escalates a defense case.
+ * @param {string} analysisId
+ * @param {{ account_id: string, decision: 'CLEARED'|'ESCALATED', notes?: string }} payload
+ */
+export async function submitReviewDecision(analysisId, payload) {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/review/${encodeURIComponent(analysisId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  return handleResponse(res);
+}
+
+/**
  * GET /legal-info
  */
 export async function getLegalInfo() {

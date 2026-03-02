@@ -124,6 +124,17 @@ class SuspiciousAccount(BaseModel):
         default="UNCLASSIFIED",
         description="Primary role: CONTROLLER | MULE | POSSIBLE_VICTIM | UNCLASSIFIED"
     )
+    # ── Right to Defense ──────────────────────────────────────────────────
+    review_status: str = Field(
+        default="FLAGGED",
+        description="Defense review status: FLAGGED | UNDER_REVIEW | CLEARED | ESCALATED"
+    )
+    defense_statement: Optional[str] = Field(
+        None, description="Defense text submitted by the account holder"
+    )
+    review_decision: Optional[str] = Field(
+        None, description="Investigator decision notes (CLEARED or ESCALATED)"
+    )
 
 
 class FraudRing(BaseModel):
@@ -293,3 +304,42 @@ class SecondChanceAck(BaseModel):
         "Your dispute has been received.  A compliance officer will review it "
         "within 24 hours.  Reference your review_id for updates."
     )
+
+
+# ---------------------------------------------------------------------------
+# Right to Defense models
+# ---------------------------------------------------------------------------
+
+class DefenseSubmission(BaseModel):
+    """Body for POST /defense/{analysis_id} — account holder submits their defense."""
+    account_id: str = Field(..., description="Account ID submitting the defense")
+    defense_text: str = Field(..., min_length=10, description="Defense statement (min 10 chars)")
+
+
+class DefenseAck(BaseModel):
+    """Acknowledgement returned after a successful defense submission."""
+    success: bool = True
+    account_id: str
+    status: str = "UNDER_REVIEW"
+    message: str = (
+        "Your defense statement has been received. "
+        "An investigator will review your case and respond within 24 hours."
+    )
+
+
+class ReviewDecision(BaseModel):
+    """Body for POST /review/{analysis_id} — investigator makes a decision."""
+    account_id: str = Field(..., description="Account ID being reviewed")
+    decision: str = Field(
+        ..., description="CLEARED | ESCALATED",
+        pattern=r"^(CLEARED|ESCALATED)$"
+    )
+    notes: str = Field(default="", description="Optional investigator notes")
+
+
+class ReviewDecisionAck(BaseModel):
+    """Response after investigator submits a review decision."""
+    success: bool = True
+    account_id: str
+    review_status: str
+    reviewed_at: str

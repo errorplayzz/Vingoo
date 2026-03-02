@@ -17,6 +17,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import NullPool
 
 # Load .env before reading any environment variable
 load_dotenv()
@@ -33,7 +34,7 @@ if not DATABASE_URL:
         "Create a .env file with DATABASE_URL=postgresql://... or set it in your shell."
     )
 
-# Supabase (and many PaaS providers) supply a URL that starts with
+# Many PaaS providers (Neon, Supabase, Heroku …) supply a URL that starts with
 # "postgres://" but SQLAlchemy 1.4+ requires "postgresql://".
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -42,14 +43,16 @@ if DATABASE_URL.startswith("postgres://"):
 # Engine
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------------
-
-# Detect PgBouncer / Supabase transaction-mode proxies: in that mode the
-# server recycles connections between requests, so prepared statements and
-# connection-level settings don't survive – use NullPool + no prepares.
+# Detect PgBouncer transaction-mode proxies (Neon pooled URLs use PgBouncer
+# on port 6432).  In that mode the server recycles connections between
+# requests, so prepared statements and connection-level settings don't
+# survive – use NullPool + disable prepared statements.
+# Set PGBOUNCER_MODE=1 in .env when using Neon's *pooled* connection string.
 _PGBOUNCER_MODE: bool = os.getenv("PGBOUNCER_MODE", "0") == "1"
+
+# SSL mode – Neon (and most cloud Postgres providers) require encrypted
+# connections.  Override with DB_SSL_MODE=disable for local development.
+_SSL_MODE: str = os.getenv("DB_SSL_MODE", "require")
 
 # psycopg2 TCP keepalive settings prevent ghost connections after network
 # blips (especially important on cloud PaaS with 5-min idle timeouts).
@@ -59,6 +62,7 @@ _KEEPALIVE_CONNECT_ARGS = {
     "keepalives_idle": 60,      # seconds before first keepalive probe
     "keepalives_interval": 10,  # seconds between probes
     "keepalives_count": 5,      # probes before declaring dead
+    "sslmode": _SSL_MODE,       # "require" for Neon/cloud; "disable" for local
 }
 
 if _PGBOUNCER_MODE:

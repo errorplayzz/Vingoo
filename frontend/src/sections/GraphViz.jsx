@@ -813,7 +813,7 @@ const D3Graph = memo(function D3Graph({
       <svg
         ref={svgRef}
         className="w-full"
-        style={{ height: 500, display:"block" }}
+        style={{ height: 370, display:"block" }}
       />
       {/* Isolated reset button */}
       <AnimatePresence>
@@ -914,50 +914,95 @@ export default function GraphViz() {
   const handleReset = useCallback(() => {}, []);
 
   return (
-    <section ref={sectionRef} id="graph" data-focus-target="graph" className="py-24 md:py-32 relative bg-slate-50 border-t border-slate-200">
-      <div className="container-wide">
+    <section
+      ref={sectionRef}
+      id="graph"
+      data-focus-target="graph"
+      className="relative overflow-hidden"
+      style={{
+        background: "linear-gradient(160deg, #F8FAFF 0%, #F3F6FF 35%, #ffffff 100%)",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      {/* Dot grid */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage:
+          "linear-gradient(rgba(99,102,241,0.05) 1px, transparent 1px)," +
+          "linear-gradient(90deg, rgba(99,102,241,0.05) 1px, transparent 1px)",
+        backgroundSize: "44px 44px",
+      }}/>
+      {/* Glow orbs */}
+      <div className="absolute top-0 left-0 w-[500px] h-[500px] pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 65%)" }}/>
+      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 65%)" }}/>
+      {/* Top edge */}
+      <div className="absolute top-0 left-0 right-0 h-px"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(59,130,246,0.2), rgba(99,102,241,0.2), transparent)" }}/>
 
-        {/* Header */}
-        <motion.div className="mb-10"
-          initial={{ opacity:0, y:24 }}
-          animate={{ opacity:1, y:0  }}
-          transition={{ duration:0.7, ease:[0.22,1,0.36,1] }}>
-          <p className="section-label mb-3">Investigation View</p>
-          <h2 className="section-title max-w-xl">
-            Transactions become<br />an intelligence network.
-          </h2>
+      <div className="container-wide relative w-full py-6">
+
+        {/* ── Header row ──────────────────────────────────────── */}
+        <motion.div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3 mb-4"
+          initial={{ opacity:0, y:20 }}
+          animate={{ opacity:1, y:0 }}
+          transition={{ duration:0.65, ease:[0.22,1,0.36,1] }}>
+
+          <div>
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-3 border"
+              style={{ background: "rgba(59,130,246,0.08)", borderColor: "rgba(59,130,246,0.2)" }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"/>
+              <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-blue-500">Investigation View</span>
+            </div>
+            <h2 className="font-black leading-[1.05] tracking-tight"
+              style={{ fontSize: "clamp(1.45rem, 2.2vw, 2rem)", color: "#0F172A" }}>
+              Transactions become
+              <span style={{
+                background: "linear-gradient(135deg, #3B82F6 0%, #6366F1 100%)",
+                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+                display: "block",
+              }}>an intelligence network.</span>
+            </h2>
+          </div>
+
+          {/* Legend pill */}
+          <div className="flex items-center gap-3 px-4 py-2 rounded-xl border flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(12px)",
+                     borderColor: "rgba(148,163,184,0.2)", boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}>
+            {[
+              { cls:"bg-red-400",   label:"High-risk" },
+              { cls:"bg-blue-500",  label:"Suspicious" },
+              { cls:"bg-slate-300", label:"Normal" },
+              { cls:"bg-amber-400", label:"Ring member" },
+            ].map((l) => (
+              <span key={l.label} className="flex items-center gap-1.5 text-[10px] font-semibold whitespace-nowrap"
+                style={{ color: "#64748B" }}>
+                <span className={`w-2 h-2 rounded-full ${l.cls}`} />
+                {l.label}
+              </span>
+            ))}
+          </div>
         </motion.div>
 
-        <div className="flex flex-col lg:flex-row gap-8 items-start">
+        {/* ── Main row: graph + side panel ────────────────────── */}
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
 
-          {/* Graph */}
+          {/* Graph canvas */}
           <motion.div className="flex-1 min-w-0 transition-opacity duration-500"
-            style={{ opacity: graphActive ? 1 : 0.5 }}
-            initial={{ y:32 }}
-            animate={{ y:0  }}
+            style={{ opacity: graphActive ? 1 : 0.55 }}
+            initial={{ y:24 }}
+            animate={{ y:0 }}
             transition={{ duration:0.8, delay:0.15, ease:[0.22,1,0.36,1] }}>
 
-            {/* Legend bar */}
-            <div className="flex flex-wrap gap-2 mb-3">
-              <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg text-[10.5px]"
-                   style={{ background:"rgba(255,255,255,0.90)", backdropFilter:"blur(10px)",
-                            border:"1px solid rgba(0,0,0,0.07)", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" }}>
-                {[
-                  { cls:"bg-red-400",   label:"High-risk (>85)" },
-                  { cls:"bg-accent",    label:"Suspicious"      },
-                  { cls:"bg-slate-300", label:"Normal"          },
-                  { cls:"bg-amber-400", label:"Ring member"     },
-                ].map((l) => (
-                  <span key={l.label} className="flex items-center gap-1.5 text-muted whitespace-nowrap">
-                    <span className={`w-2.5 h-2.5 rounded-full ${l.cls}`} />
-                    {l.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Canvas — with scroll-triggered blur-to-reveal for real analysis data */}
-            <div ref={graphRef} className="relative">
+            <div ref={graphRef} className="relative rounded-2xl overflow-hidden border"
+              style={{
+                borderColor: "rgba(148,163,184,0.18)",
+                boxShadow: "0 4px 32px rgba(59,130,246,0.08), 0 1px 4px rgba(0,0,0,0.04)",
+                background: "linear-gradient(135deg, #F8FBFF 0%, #EFF6FF 60%, #F1F5F9 100%)",
+              }}>
               <NodeTooltip node={hovered} />
               <D3Graph
                 key={`${nodes.length}-${edges.length}`}
@@ -968,115 +1013,148 @@ export default function GraphViz() {
                 onResetIsolation={handleReset}
               />
 
-              {/* Blur overlay — lifts when graph enters viewport + short delay */}
-              {/* Only shown for real analysis data, never for demo mode       */}
               <AnimatePresence>
                 {!graphRevealed && result?.analysis_id && (
                   <motion.div
                     key="graph-blur"
-                    className="absolute inset-0 rounded-xl flex flex-col items-center justify-center gap-4"
+                    className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-4"
                     style={{
-                      backdropFilter: 'blur(12px)',
-                      WebkitBackdropFilter: 'blur(12px)',
-                      background: 'rgba(255,255,255,0.55)',
-                      border: '1px solid rgba(29,78,216,0.10)',
+                      backdropFilter: "blur(12px)",
+                      WebkitBackdropFilter: "blur(12px)",
+                      background: "rgba(255,255,255,0.55)",
+                      border: "1px solid rgba(29,78,216,0.10)",
                     }}
                     initial={{ opacity: 1 }}
                     exit={{
                       opacity: 0,
-                      backdropFilter: 'blur(0px)',
-                      WebkitBackdropFilter: 'blur(0px)',
+                      backdropFilter: "blur(0px)",
+                      WebkitBackdropFilter: "blur(0px)",
                       transition: { duration: 0.9, ease: [0.22, 1, 0.36, 1] },
                     }}
                   >
-                    {/* Pulse indicator */}
                     <div className="flex flex-col items-center gap-3">
                       <div className="relative">
-                        <div className="w-10 h-10 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+                        <div className="w-10 h-10 rounded-full border-2 border-blue-300 border-t-blue-500 animate-spin" />
                         <motion.div
-                          className="absolute inset-0 rounded-full bg-accent/10"
+                          className="absolute inset-0 rounded-full"
+                          style={{ background: "rgba(59,130,246,0.1)" }}
                           animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity }}
                         />
                       </div>
-                      <div className="text-center">
-                        <p className="text-[12px] font-semibold text-accent uppercase tracking-widest">
-                          Network Assembling
-                        </p>
-                        <p className="text-[11px] text-faint mt-1">
-                          Scroll to reveal the fraud network
-                        </p>
-                      </div>
+                      <p className="text-[11px] font-semibold text-blue-500 uppercase tracking-widest">
+                        Network Assembling
+                      </p>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-            <p className="mt-2.5 text-[10.5px] text-faint text-center">
-              Hover for details  Click node to isolate subgraph  Click background to reset  Scroll to zoom  Drag nodes
+
+            <p className="mt-2 text-[10px] text-center" style={{ color: "#94A3B8" }}>
+              Hover · Click node to isolate · Click background to reset · Scroll to zoom · Drag nodes
             </p>
           </motion.div>
 
           {/* Side panel */}
-          <motion.div className="lg:w-[268px] flex-shrink-0 flex flex-col gap-4"
+          <motion.div className="lg:w-[248px] flex-shrink-0 flex flex-col gap-2"
             initial={{ opacity:0, x:24 }}
-            animate={{ opacity:1, x:0  }}
+            animate={{ opacity:1, x:0 }}
             transition={{ duration:0.8, delay:0.3, ease:[0.22,1,0.36,1] }}>
 
-            <h3 className="text-[13px] font-bold text-ink">Detected Patterns</h3>
+            {/* Section label */}
+            <div className="flex items-center gap-2">
+              <div className="h-px flex-1" style={{ background: "rgba(59,130,246,0.2)" }}/>
+              <span className="text-[9px] font-bold tracking-[0.15em] uppercase" style={{ color: "#3B82F6" }}>
+                Detected Patterns
+              </span>
+              <div className="h-px flex-1" style={{ background: "rgba(59,130,246,0.2)" }}/>
+            </div>
+
             {patterns.map((p, i) => (
-              <motion.div key={p.kind} className="rounded-2xl p-4"
-                style={{ background:"rgba(255,255,255,0.82)", backdropFilter:"blur(12px)",
-                         border:"1px solid rgba(0,0,0,0.07)", boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}
-                initial={{ opacity:0, y:14 }}
-                animate={{ opacity:1, y:0  }}
-                transition={{ delay:i*0.1+0.45, duration:0.5 }}>
-                <div className="flex items-center justify-between mb-2">
+              <motion.div key={p.kind}
+                className="group rounded-xl p-2.5 border relative overflow-hidden cursor-default"
+                style={{
+                  background: "#ffffff",
+                  borderColor: "rgba(148,163,184,0.18)",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+                }}
+                initial={{ opacity:0, y:12 }}
+                animate={{ opacity:1, y:0 }}
+                transition={{ delay: i * 0.1 + 0.45, duration: 0.5 }}
+                whileHover={{ y: -2, transition: { duration: 0.18 } }}
+              >
+                {/* Top accent */}
+                <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-xl"
+                  style={{ background: `linear-gradient(90deg, ${p.color}, transparent)` }}/>
+                {/* Hover glow */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-xl"
+                  style={{ background: `radial-gradient(ellipse at 20% 50%, ${p.color}15 0%, transparent 70%)` }}/>
+
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${p.dotCls}`}
+                        style={{ boxShadow: `0 0 4px ${p.color}80` }}/>
+                      <span className="text-[12px] font-bold" style={{ color: "#0F172A" }}>{p.title}</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                      style={{ background: `${p.color}15`, color: p.color }}>
+                      {p.accounts} accs
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] leading-snug mb-1.5" style={{ color: "#64748B" }}>{p.desc}</p>
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${p.dotCls}`} />
-                    <span className="text-[12px] font-bold text-ink">{p.title}</span>
+                    <div className="flex-1 h-1 rounded-full overflow-hidden"
+                      style={{ background: "rgba(148,163,184,0.15)" }}>
+                      <motion.div className="h-full rounded-full" style={{ background: p.color }}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${p.score}%` }}
+                        transition={{ delay: i * 0.1 + 0.9, duration: 0.8, ease: "easeOut" }}/>
+                    </div>
+                    <span className="text-[11px] font-black tabular-nums flex-shrink-0"
+                      style={{ color: p.color }}>{p.score}</span>
                   </div>
-                  <span className="text-[10.5px] font-bold text-accent">{p.accounts} accs</span>
-                </div>
-                <p className="text-[11px] text-muted leading-relaxed mb-3">{p.desc}</p>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
-                    <motion.div className="h-full rounded-full" style={{ background:p.color }}
-                      initial={{ width:0 }}
-                      animate={{ width:`${p.score}%` }}
-                      transition={{ delay:i*0.1+0.9, duration:0.8, ease:"easeOut" }} />
-                  </div>
-                  <span className="text-[11px] font-bold tabular-nums flex-shrink-0"
-                        style={{ color:p.color }}>{p.score}</span>
                 </div>
               </motion.div>
             ))}
 
             {/* Edge key */}
-            <div className="rounded-2xl p-4"
-                 style={{ background:"rgba(255,255,255,0.82)", backdropFilter:"blur(12px)",
-                          border:"1px solid rgba(0,0,0,0.07)", boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
-              <p className="text-[10.5px] font-bold text-faint uppercase tracking-widest mb-3">Edge Key</p>
+            <div className="rounded-xl p-2.5 border"
+              style={{ background: "#ffffff", borderColor: "rgba(148,163,184,0.18)",
+                       boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="h-px flex-1" style={{ background: "rgba(148,163,184,0.2)" }}/>
+                <span className="text-[9px] font-bold tracking-[0.15em] uppercase" style={{ color: "#94A3B8" }}>
+                  Edge Key
+                </span>
+                <div className="h-px flex-1" style={{ background: "rgba(148,163,184,0.2)" }}/>
+              </div>
               {[
                 { color:CLR.cycle, label:"Cycle route",     dash:false, thick:false },
                 { color:CLR.smurf, label:"Smurfing flow",   dash:false, thick:true  },
                 { color:CLR.shell, label:"Shell chain",     dash:true,  thick:false },
                 { color:CLR.edge,  label:"Normal transfer", dash:false, thick:false },
               ].map((e) => (
-                <div key={e.label} className="flex items-center gap-3 mb-2.5 last:mb-0">
-                  <svg width="24" height="8" className="flex-shrink-0">
-                    <line x1="0" y1="4" x2="24" y2="4"
+                <div key={e.label} className="flex items-center gap-3 mb-1.5 last:mb-0">
+                  <svg width="22" height="8" className="flex-shrink-0">
+                    <line x1="0" y1="4" x2="22" y2="4"
                       stroke={e.color}
                       strokeWidth={e.thick ? 2.5 : 1.8}
                       strokeDasharray={e.dash ? "5 3" : "none"} />
                   </svg>
-                  <span className="text-[11px] text-muted">{e.label}</span>
+                  <span className="text-[11px]" style={{ color: "#64748B" }}>{e.label}</span>
                 </div>
               ))}
             </div>
+
           </motion.div>
         </div>
       </div>
+
+      {/* Bottom edge */}
+      <div className="absolute bottom-0 left-0 right-0 h-px"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(59,130,246,0.15), rgba(99,102,241,0.15), transparent)" }}/>
     </section>
   );
 }

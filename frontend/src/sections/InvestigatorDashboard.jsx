@@ -13,7 +13,7 @@
  * Tabs:
  *  1. Analyses  — DB-persisted analyses; drill into accounts + rings
  *  2. Reports   — victim reports; approve / reject → reward entry
- *  3. Reviews   — second-chance requests; approve / reject
+ *  3. Defense Reviews  — right-to-defense requests; clear / escalate
  */
 import { useState, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -431,7 +431,7 @@ function ReviewsTab() {
     return <div className="p-6 text-center"><p className="text-[13px] text-red-600">{error?.detail ?? error?.message ?? "Failed to load."}</p></div>;
   }
   if (!reviews.length) {
-    return <EmptyState icon="⚖️" title="No review requests" sub="Second-chance dispute requests submitted via the Citizen Protection section will appear here." />;
+    return <EmptyState icon="⚖️" title="No defense requests" sub="Right to Defense statements submitted via the Results Dashboard will appear here." />;
   }
 
   return (
@@ -493,7 +493,7 @@ function ReviewsTab() {
 const TABS = [
   { id: "analyses", label: "Analyses"      },
   { id: "reports",  label: "Victim Reports" },
-  { id: "reviews",  label: "Second-Chance"  },
+  { id: "reviews",  label: "Right to Defense" },
 ];
 
 export default function InvestigatorDashboard() {
@@ -543,7 +543,7 @@ export default function InvestigatorDashboard() {
                 Admin Dashboard
               </h2>
               <p className="text-muted text-[0.9375rem] mt-2 max-w-md leading-relaxed">
-                View all persisted analyses, manage victim reports and second-chance dispute reviews.
+                View all persisted analyses, manage victim reports and right-to-defense review cases.
               </p>
             </div>
             {/* Refresh invalidates the entire ["admin"] query namespace */}

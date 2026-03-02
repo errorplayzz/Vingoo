@@ -25,7 +25,9 @@ const FinalCTA             = lazy(() => import('./sections/FinalCTA'));
 
 // ── Route-level page chunks ──────────────────────────────────────────────────
 const InvestigationPage    = lazy(() => import('./pages/InvestigationPage'));
-const AdminPage            = lazy(() => import('./pages/AdminPage'));const LoginPage            = lazy(() => import('./pages/LoginPage'));
+const AdminPage            = lazy(() => import('./pages/AdminPage'));
+const LoginPage            = lazy(() => import('./pages/LoginPage'));
+const SignupPage           = lazy(() => import('./pages/SignupPage'));
 // Shared fallback — a thin shimmer bar that matches the section's min-height
 const SectionFallback = memo(() => (
   <div className="w-full py-20 flex items-center justify-center" aria-hidden>
@@ -87,13 +89,13 @@ function App() {
         {/* Global ambient layer — renders behind all content, no interaction cost */}
         <SystemAmbientLayer />
         <InvestigationProvider>
-          <DemoModeProvider>
           <AnalysisProvider>
-            {/* Scroll to top whenever the route pathname changes */}
-            <ScrollToTop />
-            {/* Demo Mode: guided narration + focus highlights (no-op when demo=false) */}
-            <SystemNarration />
-            <FocusHighlight />
+            <DemoModeProvider>
+              {/* Scroll to top whenever the route pathname changes */}
+              <ScrollToTop />
+              {/* Demo Mode: guided narration + focus highlights (no-op when demo=false) */}
+              <SystemNarration />
+              <FocusHighlight />
 
         <Routes>
           {/* ── Landing page ──────────────────────────────────────── */}
@@ -123,6 +125,16 @@ function App() {
             }
           />
 
+          {/* ── Sign-up ───────────────────────────────────────────── */}
+          <Route
+            path="/signup"
+            element={
+              <Suspense fallback={null}>
+                <SignupPage />
+              </Suspense>
+            }
+          />
+
           {/* ── Admin dashboard ───────────────────────────────────── */}
           {/* Guarded — redirects to /login if not authenticated.     */}
           <Route
@@ -139,8 +151,8 @@ function App() {
           {/* ── Catch-all ─────────────────────────────────────────── */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+            </DemoModeProvider>
           </AnalysisProvider>
-          </DemoModeProvider>
         </InvestigationProvider>
       </ToastProvider>
     </AuthProvider>

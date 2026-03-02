@@ -567,3 +567,97 @@ async def security_headers_middleware(request: Request, call_next):
 
 # Need uuid for request ID — import here to avoid circular dependency with main
 import uuid  # noqa: E402 (intentional late import)
+
+
+# ---------------------------------------------------------------------------
+# Firebase Authentication (optional — set FIREBASE_CREDENTIALS_PATH)
+# ---------------------------------------------------------------------------
+# When FIREBASE_CREDENTIALS_PATH points to a valid service-account JSON file,
+# Firebase ID tokens issued by the frontend are accepted in addition to
+# (or instead of) the legacy JWT credentials.
+#
+# Usage in an endpoint:
+#
+#   @app.post("/analyze")
+#   async def analyze(
+#       _fb = Depends(require_firebase_token),  # Firebase path
+#       # OR keep legacy:
+#       _   = Depends(require_role("analyst")),
+#   ):
+#       ...
+#
+# The dependency raises HTTP 401 if the token is absent or invalid.
+# ---------------------------------------------------------------------------
+
+_FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+_firebase_app = None  # lazy-initialised singleton
+
+
+def _get_firebase_app():
+    """Lazily initialise the firebase-admin SDK app once and cache it."""
+    global _firebase_app
+    if _firebase_app is not None:
+        return _firebase_app
+
+    try:
+        import firebase_admin  # noqa: PLC0415
+        from firebase_admin import credentials  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "firebase-admin is not installed. "
+            "Run: pip install firebase-admin>=6.5.0"
+        ) from exc
+
+    if _FIREBASE_CREDENTIALS_PATH and os.path.isfile(_FIREBASE_CREDENTIALS_PATH):
+        cred = credentials.Certificate(_FIREBASE_CREDENTIALS_PATH)
+        _firebase_app = firebase_admin.initialize_app(cred)
+        log.info("Firebase Admin SDK initialised from %s", _FIREBASE_CREDENTIALS_PATH)
+    else:
+        # Use Application Default Credentials (works on GCP/Cloud Run automatically)
+        _firebase_app = firebase_admin.initialize_app()
+        log.info("Firebase Admin SDK initialised with Application Default Credentials")
+
+    return _firebase_app
+
+
+async def verify_firebase_token(request: Request) -> Dict[str, Any]:
+    """FastAPI dependency — verifies the Firebase ID token in the Authorization header.
+
+    Raises HTTP 401 on any failure.
+    Returns the decoded token payload (dict) on success.
+
+    Bearer token must be obtained via ``firebase.auth().currentUser.getIdToken()``.
+    """
+    if not AUTH_ENABLED:
+        return {"uid": "dev", "email": "dev@local", "role": "analyst"}
+
+    auth_header: str = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header",
+        )
+
+    id_token = auth_header.split(" ", 1)[1].strip()
+    if not id_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Empty bearer token",
+        )
+
+    try:
+        import firebase_admin.auth as fb_auth  # noqa: PLC0415
+        _get_firebase_app()  # ensure SDK is initialised
+        decoded = fb_auth.verify_id_token(id_token, check_revoked=True)
+        return decoded  # keys: uid, email, name, picture, phone_number, ...
+    except Exception as exc:
+        log.warning("Firebase token verification failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Firebase ID token",
+        ) from exc
+
+
+def require_firebase_token(decoded: Dict[str, Any] = Depends(verify_firebase_token)):
+    """Dependency alias — can replace ``require_role()`` on Firebase-protected routes."""
+    return decoded

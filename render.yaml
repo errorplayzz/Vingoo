@@ -12,9 +12,19 @@ services:
     autoDeploy: true
 
     envVars:
-      # Paste your Supabase connection string here (or set it in the Render dashboard)
+      # Paste your Neon connection string here (or set it in the Render dashboard).
+      # Use the *direct* (non-pooler) URL on Render; set PGBOUNCER_MODE=0.
       - key: DATABASE_URL
         sync: false             # filled manually in the dashboard — never commit secrets
+
+      # 0 = direct Neon connection (recommended for Render).
+      # 1 = Neon pooled (-pooler) connection.
+      - key: PGBOUNCER_MODE
+        value: "0"
+
+      # "require" for all cloud Postgres providers.
+      - key: DB_SSL_MODE
+        value: "require"
 
       # Comma-separated list of allowed frontend origins.
       # Set this to your Vercel URL once deployed, e.g.:

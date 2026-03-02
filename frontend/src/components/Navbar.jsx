@@ -1,9 +1,10 @@
-﻿import { useState, useEffect } from 'react';
-import { Link }                from 'react-router-dom';
+﻿import { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate }   from 'react-router-dom';
 import { motion, AnimatePresence } from "framer-motion";
 import StatusBadge from './StatusBadge';
 import { useAuth } from '../context/AuthContext';
-import { useAnalysisState } from '../context/AnalysisContext';
+import { useAnalysisState, useAnalysisActions } from '../context/AnalysisContext';
+import { useDemoMode } from '../demo/DemoModeProvider';
 
 const links = [
   { label: "How It Works",  href: "#solution" },
@@ -16,6 +17,21 @@ export default function Navbar() {
   const [menuOpen,     setMenuOpen]     = useState(false);
   const { user, isAuthenticated, logout } = useAuth();
   const { status: analysisStatus } = useAnalysisState();
+  const { reset } = useAnalysisActions();
+  const { isDemoMode } = useDemoMode();
+  const navigate = useNavigate();
+
+  const hasResults = analysisStatus === 'done';
+
+  const handleTryAnother = useCallback(() => {
+    reset();
+    // If not on home page, navigate there first then scroll
+    navigate('/');
+    setTimeout(() => {
+      const el = document.getElementById('upload');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }, [reset, navigate]);
 
   // ── Live clock ──────────────────────────────────────────────────────────
   const [clock, setClock] = useState(() => {
@@ -119,6 +135,13 @@ export default function Navbar() {
             <div className="w-px h-4 bg-slate-200" />
             <StatusBadge />
 
+            {isDemoMode && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-700 text-[9.5px] font-bold uppercase tracking-[0.12em]">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                Demo Mode
+              </span>
+            )}
+
             {/* ── Auth section ─────────────────────────────────────── */}
             {isAuthenticated ? (
               /* Authenticated: show username chip + sign-out */
@@ -151,16 +174,21 @@ export default function Navbar() {
               </Link>
             )}
 
-            <motion.a
-              href="#upload"
-              className="text-[13px] font-semibold px-4 py-2 rounded-lg bg-accent text-white"
+            <motion.button
+              onClick={hasResults ? handleTryAnother : () => { navigate('/'); setTimeout(() => { const el = document.getElementById('upload'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80); }}
+              className="text-[13px] font-semibold px-4 py-2 rounded-lg bg-accent text-white flex items-center gap-1.5"
               style={{ boxShadow: "0 2px 12px rgba(29,78,216,0.40)" }}
               whileHover={{ scale: 1.03, boxShadow: "0 4px 20px rgba(29,78,216,0.55)" }}
               whileTap={{ scale: 0.97 }}
               transition={{ type: "spring", stiffness: 400, damping: 24 }}
             >
-              Try Detection
-            </motion.a>
+              {hasResults ? (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Try Another File
+                </>
+              ) : 'Try Detection'}
+            </motion.button>
           </div>
 
           {/* ── Data-stream scan line ─────────────────────────────────── */}
@@ -214,13 +242,12 @@ export default function Navbar() {
                 </motion.a>
               ))}
             </nav>
-            <a
-              href="#graph"
-              onClick={() => setMenuOpen(false)}
+            <button
+              onClick={() => { setMenuOpen(false); hasResults ? handleTryAnother() : (navigate('/'), setTimeout(() => { const el = document.getElementById('upload'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 80)); }}
               className="mt-auto text-center text-[15px] font-semibold px-5 py-3.5 rounded-xl bg-accent text-white"
             >
-              Try Detection
-            </a>
+              {hasResults ? 'Try Another File' : 'Try Detection'}
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

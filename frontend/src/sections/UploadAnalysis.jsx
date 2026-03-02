@@ -7,8 +7,9 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useInView } from "react-intersection-observer";
 import { useNavigate }  from "react-router-dom";
-import { useAnalysis } from "../context/AnalysisContext";
-import { useToast }    from "../context/ToastContext";
+import { useAnalysis }   from "../context/AnalysisContext";
+import { useToast }     from "../context/ToastContext";
+import { useAuthState } from "../context/AuthContext";
 import {
   INVESTIGATION_STATE,
   isStateAtLeast,
@@ -77,18 +78,24 @@ function DropZone({ onFile }) {
 
   return (
     <motion.div
-      className="relative rounded-2xl border-2 border-dashed p-10 flex flex-col items-center gap-4 cursor-pointer select-none"
+      className="relative rounded-2xl border-2 border-dashed cursor-pointer select-none overflow-hidden"
       animate={{
-        borderColor: dragging ? "rgba(29,78,216,0.55)" : "rgba(0,0,0,0.10)",
-        backgroundColor: dragging ? "rgba(29,78,216,0.025)" : "rgba(248,250,252,0.5)",
+        borderColor: dragging ? "rgba(99,102,241,0.6)" : "rgba(99,102,241,0.18)",
         scale: dragging ? 1.005 : 1,
+      }}
+      style={{
+        background: dragging
+          ? "rgba(99,102,241,0.04)"
+          : "rgba(255,255,255,0.85)",
+        backdropFilter: "blur(16px)",
+        boxShadow: "0 8px 40px rgba(99,102,241,0.08), 0 1px 4px rgba(0,0,0,0.04)",
       }}
       transition={{ duration: 0.18, ease: EASE }}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
-      whileHover={{ borderColor: "rgba(29,78,216,0.3)", backgroundColor: "rgba(29,78,216,0.01)" }}
+      whileHover={{ borderColor: "rgba(99,102,241,0.4)", boxShadow: "0 12px 48px rgba(99,102,241,0.12), 0 1px 4px rgba(0,0,0,0.04)" }}
     >
       <input
         ref={inputRef}
@@ -98,33 +105,49 @@ function DropZone({ onFile }) {
         onChange={(e) => handleFiles(e.target.files)}
       />
 
-      <motion.div
-        className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center"
-        animate={{ y: dragging ? -4 : 0, scale: dragging ? 1.08 : 1 }}
-        transition={{ duration: 0.18, ease: EASE }}
-      >
-        <svg width="26" height="26" viewBox="0 0 26 26" fill="none" className="text-accent">
-          <path d="M13 17V5M9 9l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M4 19v2a2 2 0 002 2h14a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-      </motion.div>
+      {/* Inner content */}
+      <div className="flex flex-col items-center gap-5 p-12">
+        {/* Upload icon */}
+        <motion.div
+          className="relative w-16 h-16 rounded-2xl flex items-center justify-center"
+          style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(59,130,246,0.12) 100%)",
+                   boxShadow: "0 4px 20px rgba(99,102,241,0.15)" }}
+          animate={{ y: dragging ? -6 : 0, scale: dragging ? 1.1 : 1 }}
+          transition={{ duration: 0.18, ease: EASE }}
+        >
+          <svg width="28" height="28" viewBox="0 0 26 26" fill="none"
+            style={{ color: "#6366F1" }}>
+            <path d="M13 17V5M9 9l4-4 4 4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M4 19v2a2 2 0 002 2h14a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
+          </svg>
+          {/* Glow */}
+          <div className="absolute inset-0 rounded-2xl" style={{ background: "radial-gradient(circle at 50% 50%, rgba(99,102,241,0.15) 0%, transparent 70%)" }}/>
+        </motion.div>
 
-      <div className="text-center">
-        <p className="text-[15px] font-semibold text-ink">
-          {dragging ? "Release to start analysis" : "Drop your transaction CSV"}
-        </p>
-        <p className="text-[13px] text-faint mt-1.5">
-          Required columns: <span className="font-mono">sender_id · receiver_id · amount · timestamp</span>
-        </p>
-        <p className="text-[11px] text-faint mt-1">or click to browse</p>
+        <div className="text-center">
+          <p className="text-[15px] font-bold mb-1" style={{ color: "#0F172A" }}>
+            {dragging ? "Release to start analysis" : "Drop your transaction CSV"}
+          </p>
+          <p className="text-[12.5px] mb-1" style={{ color: "#94A3B8" }}>
+            <span className="font-mono">sender_id · receiver_id · amount · timestamp</span>
+          </p>
+          <p className="text-[11px]" style={{ color: "#CBD5E1" }}>or click to browse files</p>
+        </div>
+
+        {/* CTA pill */}
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl border"
+          style={{ background: "rgba(99,102,241,0.07)", borderColor: "rgba(99,102,241,0.2)" }}>
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"/>
+          <span className="text-[11px] font-bold tracking-wide" style={{ color: "#6366F1" }}>CSV files only · max 50 MB</span>
+        </div>
       </div>
 
       {dragging && (
         <motion.div
-          className="absolute inset-0 rounded-2xl border-2 border-accent pointer-events-none"
+          className="absolute inset-0 rounded-2xl border-2 border-indigo-400 pointer-events-none"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          style={{ boxShadow: "0 0 0 4px rgba(29,78,216,0.08)" }}
+          style={{ boxShadow: "0 0 0 4px rgba(99,102,241,0.1)" }}
         />
       )}
     </motion.div>
@@ -313,6 +336,7 @@ function ResultsSummary({ result }) {
 export default function UploadAnalysis() {
   const { status, progress, result, error, fileName, runAnalysis, reset } = useAnalysis();
   const { investigationState, setInvestigationState } = useInvestigationState();
+  const { isAuthenticated } = useAuthState();
   const toast     = useToast();
   const navigate  = useNavigate();
   const { phase, sseProgress } = useInvestigationPhase();
@@ -347,6 +371,10 @@ export default function UploadAnalysis() {
   }, [status, investigationState, setInvestigationState]);
 
   const handleFile = useCallback(async (file) => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
     if (!file.name.toLowerCase().endsWith(".csv")) {
       toast.error("Please upload a .csv file.", "Wrong file type");
       return;
@@ -355,7 +383,7 @@ export default function UploadAnalysis() {
     if (ok) {
       toast.success("Analysis complete — scroll down to explore results.", "Done");
     }
-  }, [runAnalysis, toast]);
+  }, [isAuthenticated, navigate, runAnalysis, toast]);
 
   const handleReset = useCallback(() => {
     reset();
@@ -369,43 +397,102 @@ export default function UploadAnalysis() {
 
   return (
     <section id="upload" data-focus-target="upload"
-      className="bg-slate-50 border-t border-slate-200"
-      style={{ overflowX: "hidden" }}>
-      <div className="container-wide py-28 md:py-32">
+      className="relative overflow-hidden"
+      style={{
+        background: "linear-gradient(160deg, #F5F8FF 0%, #F0F4FF 40%, #ffffff 100%)",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+      }}>
+
+      {/* Dot grid */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage:
+          "linear-gradient(rgba(99,102,241,0.05) 1px, transparent 1px)," +
+          "linear-gradient(90deg, rgba(99,102,241,0.05) 1px, transparent 1px)",
+        backgroundSize: "44px 44px",
+      }}/>
+      {/* Glow orbs */}
+      <div className="absolute top-0 right-0 w-[520px] h-[520px] pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 65%)" }}/>
+      <div className="absolute bottom-0 left-0 w-[380px] h-[380px] pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 65%)" }}/>
+      {/* Top edge */}
+      <div className="absolute top-0 left-0 right-0 h-px"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(99,102,241,0.2), rgba(59,130,246,0.2), transparent)" }}/>
+
+      <div className="container-wide relative w-full py-10">
 
         {/* Left-right layout */}
-        <div className="flex flex-col lg:flex-row gap-16 xl:gap-24 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.25fr] gap-12 xl:gap-20 items-center">
 
           {/* ── LEFT — copy ── */}
           <motion.div
             ref={headerRef}
-            className="flex-1 max-w-lg"
             initial={{ opacity: 0, y: 16 }}
             animate={headerInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6, ease: EASE }}
           >
-            <p className="section-label mb-4">Detection Engine</p>
-            <h2 className="section-title mb-6">
-              Drop your<br />transaction data.
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-5 border"
+              style={{ background: "rgba(99,102,241,0.08)", borderColor: "rgba(99,102,241,0.2)" }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"/>
+              <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-indigo-500">Detection Engine</span>
+            </div>
+
+            <h2 className="font-black tracking-tight mb-4"
+              style={{ fontSize: "clamp(2rem, 3.5vw, 3rem)", lineHeight: 1.07, color: "#0F172A" }}>
+              Drop your<br />
+              <span style={{
+                background: "linear-gradient(135deg, #6366F1 0%, #3B82F6 100%)",
+                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+              }}>transaction data.</span>
             </h2>
-            <p className="text-muted text-[1.0625rem] leading-relaxed mb-8">
+
+            <p className="text-[1rem] leading-relaxed mb-7" style={{ color: "#64748B", maxWidth: "400px" }}>
               Upload a CSV. Four pattern detectors fire instantly — cycles, smurfing,
               shell chains, and velocity — results in under 11 seconds.
             </p>
 
-            {/* Required fields */}
-            <div className="space-y-2.5">
+            {/* Feature chips */}
+            <div className="flex flex-wrap gap-2 mb-7">
               {[
-                { col: "transaction_id", note: "Unique row identifier" },
-                { col: "sender_id",      note: "Sending account" },
-                { col: "receiver_id",    note: "Receiving account" },
-                { col: "amount",         note: "Positive number" },
-                { col: "timestamp",      note: "YYYY-MM-DD HH:MM:SS" },
-              ].map((f) => (
+                { icon: "⚡", label: "< 11s results", color: "#F59E0B" },
+                { icon: "🔍", label: "4 detectors",   color: "#6366F1" },
+                { icon: "🔒", label: "SHA-256 sealed", color: "#10B981" },
+              ].map((c) => (
+                <div key={c.label}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border"
+                  style={{ background: "rgba(255,255,255,0.75)", borderColor: "rgba(148,163,184,0.2)",
+                           boxShadow: "0 1px 4px rgba(0,0,0,0.04)", backdropFilter: "blur(8px)" }}>
+                  <span className="text-[12px]">{c.icon}</span>
+                  <span className="text-[11px] font-semibold" style={{ color: c.color }}>{c.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Required fields schema */}
+            <div className="rounded-2xl border overflow-hidden"
+              style={{ background: "rgba(255,255,255,0.85)", borderColor: "rgba(148,163,184,0.18)",
+                       boxShadow: "0 4px 20px rgba(0,0,0,0.05)", backdropFilter: "blur(12px)" }}>
+              <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(148,163,184,0.15)" }}>
+                <span className="text-[10px] font-black tracking-[0.16em] uppercase" style={{ color: "#94A3B8" }}>Required CSV Columns</span>
+              </div>
+              {[
+                { col: "transaction_id", note: "Unique row identifier", color: "#6366F1" },
+                { col: "sender_id",      note: "Sending account",       color: "#3B82F6" },
+                { col: "receiver_id",    note: "Receiving account",     color: "#8B5CF6" },
+                { col: "amount",         note: "Positive number",       color: "#10B981" },
+                { col: "timestamp",      note: "YYYY-MM-DD HH:MM:SS",   color: "#F59E0B" },
+              ].map((f, i) => (
                 <div key={f.col}
-                  className="flex items-center justify-between py-2 px-3.5 rounded-xl bg-slate-50 border border-black/[0.05]">
-                  <span className="text-[12px] font-mono font-semibold text-ink">{f.col}</span>
-                  <span className="text-[11px] text-faint">{f.note}</span>
+                  className="flex items-center justify-between px-4 py-2.5 border-b last:border-0"
+                  style={{ borderColor: "rgba(148,163,184,0.1)" }}>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: f.color }}/>
+                    <span className="text-[12px] font-mono font-bold" style={{ color: "#0F172A" }}>{f.col}</span>
+                  </div>
+                  <span className="text-[11px]" style={{ color: "#94A3B8" }}>{f.note}</span>
                 </div>
               ))}
             </div>
@@ -413,7 +500,7 @@ export default function UploadAnalysis() {
             {isDone && (
               <button
                 onClick={handleReset}
-                className="mt-8 text-[13px] font-semibold text-accent hover:underline flex items-center gap-1"
+                className="mt-5 text-[13px] font-semibold text-indigo-500 hover:underline flex items-center gap-1"
               >
                 ← Analyse another file
               </button>
@@ -422,7 +509,7 @@ export default function UploadAnalysis() {
 
           {/* ── RIGHT — upload / loading / result ── */}
           <motion.div
-            className="flex-1 w-full min-w-0"
+            className="w-full min-w-0"
             initial={{ opacity: 0, y: 16 }}
             animate={headerInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
@@ -464,6 +551,10 @@ export default function UploadAnalysis() {
 
         </div>
       </div>
+
+      {/* Bottom edge */}
+      <div className="absolute bottom-0 left-0 right-0 h-px"
+        style={{ background: "linear-gradient(90deg, transparent, rgba(99,102,241,0.15), rgba(59,130,246,0.15), transparent)" }}/>
 
       {/* Phase notifications — show during analysis on this page */}
       {isLoading && <EventNotification phase={phase} />}

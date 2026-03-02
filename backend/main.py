@@ -42,7 +42,11 @@ from evaluation import evaluate_detections, generate_performance_report
 from models import (
     AnalysisResponse,
     AnalysisSummary,
+    DefenseAck,
+    DefenseSubmission,
     EvaluationMetrics,
+    ReviewDecision,
+    ReviewDecisionAck,
     SecondChanceAck,
     SecondChanceRequest,
     VictimReport,
@@ -1004,12 +1008,14 @@ async def system_capabilities() -> JSONResponse:
                 ),
             },
             {
-                "id": "second_chance",
-                "name": "24-Hour Dispute / Second-Chance Window",
+                "id": "right_to_defense",
+                "name": "Right to Defense Framework",
                 "status": "IMPLEMENTED",
                 "detail": (
-                    "Flagged accounts may be disputed within 24 hours.  "
-                    "Review requests persisted to DB with unique REV-* IDs."
+                    "Flagged accounts may submit a defense statement within 24 hours. "
+                    "AI re-evaluates with the defense context; investigator issues "
+                    "CLEARED or ESCALATED decision. "
+                    "Full audit trail: defense_submitted_at, reviewed_at."
                 ),
             },
             {
@@ -1159,6 +1165,160 @@ async def second_chance(
             f"A compliance officer will review it before {deadline_str}. "
             f"Reference ID: {review_id}"
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: POST /defense/{analysis_id}   — Right to Defense
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/defense/{analysis_id}",
+    response_model=DefenseAck,
+    summary="Submit a defense statement for a flagged account",
+    tags=["Reviews"],
+    status_code=status.HTTP_201_CREATED,
+)
+@get_limit(WRITE_LIMIT)
+def submit_defense(
+    http_request: Request,
+    analysis_id: str,
+    body: DefenseSubmission,
+    db: Session = Depends(get_db),
+) -> DefenseAck:
+    """Account holder submits a defense statement for a FLAGGED account.
+
+    Sets review_status → UNDER_REVIEW and records defense_submitted_at.
+    Only allowed when review_status is 'FLAGGED'.
+    """
+    # Validate analysis
+    try:
+        aid = uuid.UUID(analysis_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid analysis_id format.")
+
+    analysis = db.query(Analysis).filter(Analysis.id == aid).first()
+    if analysis is None:
+        raise HTTPException(status_code=404, detail=f"Analysis {analysis_id!r} not found.")
+
+    # Find account row
+    account_row = (
+        db.query(AccountRecord)
+        .filter(
+            AccountRecord.analysis_id == aid,
+            AccountRecord.account_id == body.account_id,
+        )
+        .first()
+    )
+    if account_row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Account {body.account_id!r} not found in analysis {analysis_id!r}.",
+        )
+
+    if account_row.review_status != "FLAGGED":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Defense can only be submitted when status is FLAGGED. "
+                f"Current status: {account_row.review_status}"
+            ),
+        )
+
+    account_row.review_status = "UNDER_REVIEW"
+    account_row.defense_statement = body.defense_text
+    account_row.defense_submitted_at = datetime.now(tz=timezone.utc)
+
+    try:
+        db.commit()
+        print(f"[DEFENSE] Account {body.account_id} → UNDER_REVIEW (analysis {analysis_id})")
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    # Notify SSE
+    import asyncio as _asyncio
+    try:
+        loop = _asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(_sse.emit_review_submitted(f"DEF-{body.account_id}", body.account_id))
+    except Exception:  # noqa: BLE001
+        pass
+
+    return DefenseAck(
+        success=True,
+        account_id=body.account_id,
+        status="UNDER_REVIEW",
+        message=(
+            f"Your defense for account {body.account_id!r} has been received. "
+            "An investigator will review your case within 24 hours."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: POST /review/{analysis_id}   — Investigator Decision
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/review/{analysis_id}",
+    response_model=ReviewDecisionAck,
+    summary="Investigator clears or escalates a defense case",
+    tags=["Reviews"],
+    status_code=status.HTTP_200_OK,
+)
+@get_limit(ADMIN_LIMIT)
+def submit_review_decision(
+    http_request: Request,
+    analysis_id: str,
+    body: ReviewDecision,
+    db: Session = Depends(get_db),
+    _auth: TokenData = Depends(require_role("admin")),
+) -> ReviewDecisionAck:
+    """Investigator / admin finalises a defense review.
+
+    Allowed decisions: CLEARED or ESCALATED.
+    Updates review_status, review_decision, and reviewed_at.
+    """
+    try:
+        aid = uuid.UUID(analysis_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid analysis_id format.")
+
+    account_row = (
+        db.query(AccountRecord)
+        .filter(
+            AccountRecord.analysis_id == aid,
+            AccountRecord.account_id == body.account_id,
+        )
+        .first()
+    )
+    if account_row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Account {body.account_id!r} not found in analysis {analysis_id!r}.",
+        )
+
+    now_utc = datetime.now(tz=timezone.utc)
+    account_row.review_status = body.decision          # CLEARED | ESCALATED
+    account_row.review_decision = body.notes or body.decision
+    account_row.reviewed_at = now_utc
+
+    try:
+        db.commit()
+        print(
+            f"[REVIEW] Account {body.account_id} → {body.decision} "
+            f"(analysis {analysis_id}) by investigator"
+        )
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
+
+    return ReviewDecisionAck(
+        success=True,
+        account_id=body.account_id,
+        review_status=body.decision,
+        reviewed_at=now_utc.isoformat(),
     )
 
 
@@ -1455,6 +1615,12 @@ async def admin_get_analysis(
                 "suspicion_score": a.suspicion_score,
                 "detected_patterns": a.detected_patterns,
                 "ring_id": a.ring_id,
+                # Right to Defense fields
+                "review_status": a.review_status or "FLAGGED",
+                "defense_statement": a.defense_statement,
+                "review_decision": a.review_decision,
+                "reviewed_at": a.reviewed_at.isoformat() if a.reviewed_at else None,
+                "defense_submitted_at": a.defense_submitted_at.isoformat() if a.defense_submitted_at else None,
             }
             for a in row.accounts
         ],
