@@ -12,7 +12,7 @@ export default defineConfig({
   build: {
     // Ship modern ES2020 – no legacy transforms, smaller output
     target: 'es2020',
-    // esbuild minifier: faster than terser, comparable output
+    // esbuild minifier: bundled with vite 5, fast and reliable
     minify: 'esbuild',
     // Warn when any chunk exceeds 400 kB (default 500)
     chunkSizeWarningLimit: 400,
