@@ -1181,7 +1181,7 @@ async def second_chance(
 )
 @get_limit(WRITE_LIMIT)
 def submit_defense(
-    http_request: Request,
+    request: Request,
     analysis_id: str,
     body: DefenseSubmission,
     db: Session = Depends(get_db),
@@ -1269,7 +1269,7 @@ def submit_defense(
 )
 @get_limit(ADMIN_LIMIT)
 def submit_review_decision(
-    http_request: Request,
+    request: Request,
     analysis_id: str,
     body: ReviewDecision,
     db: Session = Depends(get_db),
